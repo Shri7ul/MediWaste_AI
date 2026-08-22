@@ -1,0 +1,10 @@
+{
+  "note": "Real medical-waste images from the MedBin dataset. Clicking a sample runs a genuine end-to-end analysis; no results are hardcoded.",
+  "samples": [
+    {"file": "sample1.jpg", "label": "Sample 1"},
+    {"file": "sample2.jpg", "label": "Sample 2"},
+    {"file": "sample3.jpg", "label": "Sample 3"},
+    {"file": "sample4.jpg", "label": "Sample 4"},
+    {"file": "sample5.jpg", "label": "Sample 5"}
+  ]
+}

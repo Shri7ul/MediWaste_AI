@@ -1,0 +1,32 @@
+# MediWaste AI — runtime dependencies
+# Pinned to what the code actually imports. Heavy vision deps (torch,
+# transformers) are only needed to run real inference; the deterministic
+# core + tests import lazily and run without them.
+
+# ---- Web framework ----
+Flask==3.0.3
+Werkzeug==3.0.3
+
+# ---- Config ----
+python-dotenv==1.0.1
+
+# ---- Imaging ----
+Pillow==10.4.0
+numpy==1.26.4
+
+# ---- Vision: CLIP visual-context (transformers) ----
+torch==2.4.0
+transformers==4.44.2
+
+# ---- Object detection: Roboflow serverless (lazy import) ----
+inference-sdk==0.22.0
+
+# ---- RAG: Pinecone with integrated embedding (modern SDK, lazy import) ----
+# v5.1+ exposes the integrated-embedding records search API used here.
+# NOTE: if you hit "No module named 'pinecone'" or a missing Pinecone class,
+# a legacy 'pinecone-client' is likely installed. Fix in the ml env with:
+#   pip uninstall -y pinecone-client pinecone && pip install "pinecone>=5.1,<8"
+pinecone>=5.1,<8
+
+# ---- OpenRouter explanation layer ----
+requests==2.32.3

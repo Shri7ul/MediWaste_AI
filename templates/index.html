@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MediWaste AI — Compliance Assistant</title>
+<link rel="stylesheet" href="/static/style.css">
+<link rel="stylesheet"
+  href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.3/chart.umd.min.js"></script>
+</head>
+<body>
+<div class="app">
+
+  <!-- ============ HEADER ============ -->
+  <header>
+    <div class="brand">
+      <div class="logo">🧬</div>
+      <div>
+        <h1>MediWaste AI</h1>
+        <p>Visual Medical Waste Segregation &amp; Compliance Assistant</p>
+      </div>
+    </div>
+    <nav class="tabs">
+      <button class="tab active" data-view="analyze"><i class="fa-solid fa-microscope"></i> Analyze</button>
+      <button class="tab" data-view="dashboard"><i class="fa-solid fa-chart-pie"></i> Dashboard</button>
+      <button class="tab" data-view="events"><i class="fa-solid fa-list-check"></i> Events</button>
+    </nav>
+  </header>
+
+  <!-- ============ STEP FLOW RIBBON ============ -->
+  <div class="flow" id="flow">
+    <div class="flow-step" data-step="detect"><span>1</span> Detect</div>
+    <i class="fa-solid fa-chevron-right"></i>
+    <div class="flow-step" data-step="expect"><span>2</span> Expect</div>
+    <i class="fa-solid fa-chevron-right"></i>
+    <div class="flow-step" data-step="verify"><span>3</span> Verify</div>
+    <i class="fa-solid fa-chevron-right"></i>
+    <div class="flow-step" data-step="explain"><span>4</span> Explain</div>
+    <i class="fa-solid fa-chevron-right"></i>
+    <div class="flow-step" data-step="record"><span>5</span> Record</div>
+  </div>
+
+  <!-- ============ ANALYZE VIEW ============ -->
+  <section class="view active" id="view-analyze">
+  <div class="dashboard">
+
+    <!-- LEFT -->
+    <div class="left-panel">
+      <div class="card">
+        <h2><span>1</span> Upload Image</h2>
+        <div class="upload-box" id="upload-box">
+          <i class="fa-solid fa-cloud-arrow-up"></i>
+          <input type="file" id="image" accept="image/png,image/jpeg,image/jpg">
+          <p>Upload medical waste image (jpg / png)</p>
+        </div>
+        <img id="preview" class="preview" style="display:none">
+        <label class="field-label">Station / Ward <small>(optional)</small></label>
+        <input type="text" id="station" class="text-input" placeholder="e.g. ICU-1, Ward-A">
+        <button id="analyze-btn" onclick="analyzeImage()">
+          <i class="fa-solid fa-microscope"></i> Analyze Waste
+        </button>
+        <div class="demo-row">
+          <span>Demo samples:</span>
+          <div id="demo-samples"></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2><span>2</span> Visual Context <small class="est-tag">Estimate</small></h2>
+        <div id="context-list">
+          <div class="row"><span>Used</span><b id="ctx-Used">-</b></div>
+          <div class="row"><span>Contaminated</span><b id="ctx-Contaminated">-</b></div>
+          <div class="row"><span>Blood</span><b id="ctx-Blood">-</b></div>
+          <div class="row"><span>Chemical</span><b id="ctx-Chemical">-</b></div>
+        </div>
+        <p class="muted-note"><i class="fa-solid fa-circle-info"></i>
+          CLIP zero-shot estimate — not clinical ground truth.</p>
+      </div>
+    </div>
+
+    <!-- RIGHT -->
+    <div class="right-panel">
+      <div id="error" class="error" style="display:none"></div>
+
+      <!-- DETECTION -->
+      <div class="card">
+        <h2>🔍 Detection</h2>
+        <div class="row"><span>Raw Object</span><b id="raw-object">-</b></div>
+        <div class="row"><span>Canonical Item</span><b id="item">-</b></div>
+        <div class="row"><span>Confidence</span><b id="confidence">-</b></div>
+        <div class="progress"><div id="confidence-bar"></div></div>
+        <div id="mixed-warning" class="mixed-warning" style="display:none"></div>
+        <div id="all-detections" class="detection-chips"></div>
+      </div>
+
+      <!-- POLICY DECISION -->
+      <div class="card policy" id="policy-card">
+        <h2>♻️ Policy Decision</h2>
+        <div class="policy-box">
+          <div class="policy-facts">
+            <div><p>Detected Waste</p><h3 id="waste-type">-</h3></div>
+            <div><p>Expected Route</p>
+              <h3 id="required-bin"><span class="route-chip" id="expected-chip">-</span></h3>
+            </div>
+            <div><p>Decision</p><h3 id="decision-status" class="decision-status">-</h3></div>
+            <div class="rule-meta">
+              <span id="rule-id">-</span> · <span id="policy-version">-</span>
+            </div>
+          </div>
+          <img id="bin-image" src="/static/assets/black_bin.png" alt="bin">
+        </div>
+        <p id="context-note" class="muted-note context-note" style="display:none">
+          <i class="fa-solid fa-circle-info"></i>
+          Context detected; facility policy route determined from canonical waste class.</p>
+      </div>
+
+      <!-- ACTUAL ROUTE -->
+      <div class="card" id="actual-card">
+        <h2><span>3</span> Actual Disposal Route</h2>
+        <p class="muted-note">Select the bin the item was actually placed in.
+          This MVP does not physically detect the bin — the operator confirms it.</p>
+        <div class="verify-row">
+          <select id="actual-route" class="text-input" disabled>
+            <option value="">Select actual route…</option>
+          </select>
+          <button id="verify-btn" class="secondary" onclick="verifyCompliance()" disabled>
+            <i class="fa-solid fa-scale-balanced"></i> Verify Compliance
+          </button>
+        </div>
+      </div>
+
+      <!-- COMPLIANCE HERO -->
+      <div class="card hero" id="compliance-hero" style="display:none">
+        <div class="hero-icon" id="hero-icon"><i class="fa-solid fa-clock"></i></div>
+        <div class="hero-body">
+          <h2 id="hero-title">Pending Verification</h2>
+          <div class="hero-routes">
+            <div class="hero-route"><small>Expected</small>
+              <span class="route-chip" id="hero-expected">-</span></div>
+            <div class="hero-route"><small>Actual</small>
+              <span class="route-chip" id="hero-actual">-</span></div>
+          </div>
+          <p id="hero-reason" class="hero-reason"></p>
+        </div>
+      </div>
+
+      <!-- SUBTLE AUDIT EVENT BADGE -->
+      <div id="event-badge" class="event-badge" style="display:none"></div>
+
+      <!-- WHY PANEL -->
+      <div class="card why" id="why-card" style="display:none">
+        <h2 id="why-title">💡 Why this route?</h2>
+
+        <!-- Deterministic policy + decision (never from the LLM) -->
+        <div class="why-grid">
+          <div class="why-kv"><span>Policy</span><b id="why-policy-line">—</b></div>
+          <div class="why-kv"><span>Decision</span><b id="why-decision-line">—</b></div>
+        </div>
+
+        <!-- Retrieved evidence: only the strongest 2–3 retained records -->
+        <div class="why-evidence">
+          <h4>📚 Evidence <small id="rag-tag" class="est-tag"></small></h4>
+          <div id="evidence-list"></div>
+          <button id="view-all-evidence" class="linkbtn" style="display:none"
+            onclick="openEvidenceModal()">View all retrieved evidence</button>
+        </div>
+
+        <!-- Evidence-grounded narrative (GPT-OSS) -->
+        <div class="why-explanation">
+          <h4>Explanation <small id="llm-tag" class="est-tag"></small></h4>
+          <p id="why-explanation-text">-</p>
+        </div>
+
+        <!-- The exact evidence ids the model relied on -->
+        <div class="why-ids" id="why-ids" style="display:none">
+          <span>Evidence IDs</span> <code id="why-ids-list"></code>
+        </div>
+
+        <p id="why-limitations" class="why-limitations"></p>
+      </div>
+
+      <!-- GUIDANCE -->
+      <div class="card guidance-card" id="guidance-card" style="display:none">
+        <h2 id="guidance-title">✅ What should I do?</h2>
+        <ul id="guidance-list"></ul>
+        <p id="guidance-note" class="guidance-note" style="display:none"></p>
+      </div>
+    </div>
+  </div>
+
+  <!-- COLOR GUIDE (populated from policy route_meta) -->
+  <div class="card guide">
+    <h2>Waste Colour Code Guide <small class="est-tag">from policy engine</small></h2>
+    <div class="bins" id="color-guide"></div>
+  </div>
+
+  <!-- SYSTEM / DEBUG -->
+  <div class="card system">
+    <h2 class="collapsible" onclick="toggleSystem()">
+      <i class="fa-solid fa-gauge-high"></i> System &amp; Performance
+      <i class="fa-solid fa-chevron-down" id="sys-chevron"></i>
+    </h2>
+    <div id="system-body" class="system-body" style="display:none">
+      <div class="sys-grid" id="sys-grid"></div>
+      <div class="sys-grid" id="timing-grid"></div>
+    </div>
+  </div>
+  </section>
+
+  <!-- ============ DASHBOARD VIEW ============ -->
+  <section class="view" id="view-dashboard">
+    <div class="stat-cards">
+      <div class="stat-card"><p>Total Events</p><h3 id="stat-total">0</h3></div>
+      <div class="stat-card correct"><p>Correct</p><h3 id="stat-correct">0</h3></div>
+      <div class="stat-card violation"><p>Violations</p><h3 id="stat-violations">0</h3></div>
+      <div class="stat-card review"><p>Review Required</p><h3 id="stat-review">0</h3></div>
+      <div class="stat-card"><p>Compliance Rate</p><h3 id="stat-rate">—</h3></div>
+    </div>
+    <div class="chart-grid">
+      <div class="card"><h2>Compliance Breakdown</h2><div class="chart-wrap"><canvas id="chart-compliance"></canvas></div></div>
+      <div class="card"><h2>Violations by Waste Type</h2><div class="chart-wrap"><canvas id="chart-type"></canvas></div></div>
+      <div class="card"><h2>Violations by Disposal Route</h2><div class="chart-wrap"><canvas id="chart-route"></canvas></div></div>
+      <div class="card"><h2>Station / Ward Performance</h2>
+        <div class="chart-wrap"><canvas id="chart-station"></canvas></div>
+        <p id="station-empty" class="muted-note" style="display:none">
+          No station/ward data yet — add a station when analyzing to enable this.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ EVENTS VIEW ============ -->
+  <section class="view" id="view-events">
+    <div class="card">
+      <h2>🗂️ Event History <button class="secondary tiny" onclick="loadEvents()"><i class="fa-solid fa-rotate"></i> Refresh</button></h2>
+      <div class="table-wrap">
+        <table class="events-table">
+          <thead><tr>
+            <th>Event</th><th>Time</th><th>Waste</th><th>Expected</th>
+            <th>Actual</th><th>Result</th><th>Conf.</th>
+          </tr></thead>
+          <tbody id="events-body">
+            <tr><td colspan="7" class="muted-note">No events yet.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- EVENT DETAIL MODAL -->
+  <div class="modal" id="event-modal" style="display:none">
+    <div class="modal-card">
+      <button class="modal-close" onclick="closeModal()">&times;</button>
+      <div id="modal-body"></div>
+    </div>
+  </div>
+
+  <!-- ALL-EVIDENCE DRAWER (full retrieved set, incl. scores — details view) -->
+  <div class="modal" id="evidence-modal" style="display:none">
+    <div class="modal-card">
+      <button class="modal-close" onclick="closeEvidenceModal()">&times;</button>
+      <h3>All retrieved evidence</h3>
+      <p class="muted-note" id="evidence-modal-sub"></p>
+      <div id="evidence-modal-body"></div>
+    </div>
+  </div>
+
+  <!-- LOADING -->
+  <div id="loading" class="loading" style="display:none">
+    <div class="spinner"></div><span id="loading-text">Analyzing…</span>
+  </div>
+
+</div>
+<script src="/static/script.js"></script>
+</body>
+</html>

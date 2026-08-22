@@ -128,4 +128,3 @@ python verify_integrations.py
 - If Pinecone or OpenRouter is down, evidence and the natural-language
   explanation degrade gracefully to "unavailable" while the deterministic
   decision and compliance verification still stand.
-# MediWaste_AI
