@@ -492,10 +492,38 @@ def active_job_for_route(route_code):
 
 def collected_event_ids():
     """Set of every event_id referenced by ANY collection job (in-progress or
-    completed). Membership removes an event from the pending-collection queue."""
+    completed).
+
+    This is the ELIGIBILITY set: once an event has been snapshotted into a job it
+    can never be pulled into a second job, which is what keeps collection cycles
+    from double-counting. It deliberately says nothing about whether the waste
+    has physically left the bin — see ``disposed_event_ids`` for that.
+    """
     ids = set()
     with _connect() as conn:
         rows = conn.execute("SELECT event_ids FROM collection_job").fetchall()
+    for r in rows:
+        try:
+            for eid in json.loads(r["event_ids"] or "[]"):
+                ids.add(eid)
+        except (ValueError, TypeError):
+            pass
+    return ids
+
+
+def disposed_event_ids():
+    """Set of event_ids referenced by COMPLETED collection jobs only.
+
+    A completed job is the point at which the waste has been taken out of the
+    bin, so this — not ``collected_event_ids`` — is what the bin's simulated
+    capacity is grounded on. Merely *starting* a job leaves its events counted as
+    still occupying the bin.
+    """
+    ids = set()
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT event_ids FROM collection_job WHERE status='COMPLETED'"
+        ).fetchall()
     for r in rows:
         try:
             for eid in json.loads(r["event_ids"] or "[]"):
@@ -527,11 +555,32 @@ def event_job_map():
 
 
 def route_usage_pending():
-    """Per-route count of events NOT yet part of any collection job.
+    """Per-route count of events still physically awaiting disposal in the bin.
 
-    Uses the effective route (actual if verified, else expected), mirroring
-    ``route_usage``. This is what the simulated bin fill is grounded on, so a
-    completed collection deterministically lowers the bin's fill level.
+    An event stops counting only when the collection job that snapshotted it has
+    been COMPLETED (see ``disposed_event_ids``). Starting a job therefore does not
+    empty the bin, while finishing one deterministically lowers it. Uses the
+    effective route (actual if verified, else expected), mirroring ``route_usage``.
+    """
+    disposed = disposed_event_ids()
+    counts = {}
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT event_id, expected_route, actual_route FROM events").fetchall()
+    for r in rows:
+        if r["event_id"] in disposed:
+            continue
+        route = r["actual_route"] or r["expected_route"]
+        if route:
+            counts[route] = counts.get(route, 0) + 1
+    return counts
+
+
+def route_usage_eligible():
+    """Per-route count of events not yet snapshotted into ANY collection job.
+
+    This is what decides whether a NEW collection cycle can be started, and is
+    intentionally distinct from ``route_usage_pending`` (what is still in the bin).
     """
     collected = collected_event_ids()
     counts = {}

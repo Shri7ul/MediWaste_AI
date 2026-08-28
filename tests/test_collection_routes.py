@@ -138,8 +138,14 @@ def test_operations_surfaces_active_job_and_event_mapping():
     assert b["active_job"] is not None
     assert b["active_job"]["job_id"] == job_id
     assert b["active_job"]["item_count"] == 2
-    # While a job is active its events are no longer "pending" for a new job.
-    assert b["pending_collection_count"] == 0
+    # While a job is active its events are no longer ELIGIBLE for a new job...
+    assert b["eligible_for_collection_count"] == 0
+    assert b["can_start_collection"] is False
+    # ...but the waste has NOT left the bin yet: starting a collection must not
+    # empty it. Only completing the job does that.
+    assert b["pending_collection_count"] == 2
+    assert b["collection_state"] == "IN_PROGRESS"
+    assert b["fill_percent"] > 0
 
     # Collected events are tagged with their job (events stay event-centric).
     jmap = audit_store.event_job_map()

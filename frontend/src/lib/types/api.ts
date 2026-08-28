@@ -144,6 +144,20 @@ export interface ActiveJobSummary {
     current_step_label: string | null;
 }
 
+/**
+ * Bin collection lifecycle state, decided by the BACKEND (operations._enrich).
+ * The frontend renders it; it must never infer bin state from `fill_percent`.
+ *   EMPTY                - nothing physically awaiting collection (0%)
+ *   PENDING_COLLECTION   - items in the bin and a new cycle can be started
+ *   IN_PROGRESS          - a collection job is running (continue it)
+ *   AWAITING_NEXT_CYCLE  - items are snapshotted into a finished job already
+ */
+export type BinCollectionState =
+    | 'EMPTY'
+    | 'PENDING_COLLECTION'
+    | 'IN_PROGRESS'
+    | 'AWAITING_NEXT_CYCLE';
+
 export interface BinOperation {
     bin_id: string;
     route_code: string;
@@ -152,10 +166,20 @@ export interface BinOperation {
     hex?: string;
     description?: string;
     capacity_units: number;
+    /** SIMULATED. Grounded on `pending_collection_count`; 0 when the bin is empty. */
     fill_percent: number;
     fill_status: 'OK' | 'MODERATE' | 'HIGH' | 'CRITICAL';
+    /** Every event ever routed here — audit total, never shrinks. */
     routed_event_count: number;
+    /** Still physically in the bin; drops only when a job COMPLETES. */
     pending_collection_count: number;
+    /** Not yet snapshotted into any job; drops when a job STARTS. */
+    eligible_for_collection_count: number;
+    collection_state: BinCollectionState;
+    collection_state_label: string;
+    can_start_collection: boolean;
+    is_empty: boolean;
+    capacity_basis: string;
     active_job?: ActiveJobSummary | null;
     data_source: string;
     sensing: string;
@@ -164,6 +188,7 @@ export interface BinOperation {
 export interface OperationsOverview {
     data_source: string;
     disclaimer: string;
+    capacity_basis?: string;
     total_bins: number;
     bins_needing_attention: number;
     attention: string[];
@@ -175,13 +200,41 @@ export interface OperationsOverview {
     bins: BinOperation[];
 }
 
+/**
+ * A configured facility ward (facility.py). This is the ONLY source of ward
+ * options for the scan UI — ward names are never hardcoded in the frontend.
+ */
+export interface Ward {
+    id: string;
+    label: string;
+    department?: string | null;
+}
+
+export interface FacilityContext {
+    facility_profile: string;
+    wards: Ward[];
+    ward_count: number;
+    /** Intentionally null: the operator must choose; nothing is defaulted. */
+    default_ward: string | null;
+    unknown_ward_allowed: boolean;
+}
+
+/**
+ * disposal.definition() — the BACKEND's workflow definition for a route.
+ * `total_steps` and the step list are authoritative; the frontend must never
+ * hardcode a per-route step count.
+ */
 export interface WorkflowDefinition {
+    route_code?: string | null;
     total_steps: number;
     steps: Array<{
         id: string;
-        name: string;
+        order?: number;
+        label: string;
         description: string;
     }>;
+    workflow_source?: string;
+    workflow_version?: string;
 }
 
 export interface WorkflowStepState {

@@ -195,3 +195,63 @@ def test_analytics_enrichment_keys_present(client):
                 "has_ward_data", "has_station_data", "data_source"):
         assert key in a
     assert a["data_source"] == "REAL_EVENTS"
+
+
+# --- Facility ward context over HTTP (Prompt 09 P0-1) -----------------------
+def test_facility_wards_is_the_ward_source_of_truth(client):
+    """The /scan UI reads its ward options from here and nowhere else."""
+    import facility
+    r = client.get("/facility/wards")
+    assert r.status_code == 200
+    body = r.get_json()
+    assert body["status"] == "ok"
+    assert body["ward_count"] == len(body["wards"]) >= 1
+    assert [w["id"] for w in body["wards"]] == facility.ward_ids()
+    for w in body["wards"]:
+        assert w["id"] and w["label"]
+    # Nothing is defaulted; the operator must choose. An omitted ward remains a
+    # supported, explicit UNKNOWN state (legacy events have no ward).
+    assert body["default_ward"] is None
+    assert body["unknown_ward_allowed"] is True
+
+
+def test_verify_rejects_an_unconfigured_ward(client):
+    eid = _seed_event()
+    r = client.post("/verify", json={"event_id": eid, "actual_route": "RED",
+                                     "ward": "NOT-A-REAL-WARD"})
+    assert r.status_code == 400
+    assert r.get_json()["code"] == "INVALID_WARD"
+    # The event must be left completely untouched by a rejected request.
+    ev = audit_store.get_event(eid)
+    assert ev["ward"] is None
+    assert ev["compliance_status"] == "PENDING_VERIFICATION"
+
+
+def test_verify_persists_a_configured_ward_on_the_audit_event(client):
+    import facility
+    ward_id = facility.ward_ids()[0]
+    eid = _seed_event()
+    r = client.post("/verify", json={"event_id": eid, "actual_route": "RED",
+                                     # Case-insensitive in, canonical id out.
+                                     "ward": ward_id.lower()})
+    assert r.status_code == 200
+    assert audit_store.get_event(eid)["ward"] == ward_id
+    # Reconstructable from the event detail endpoint the Events page renders.
+    detail = client.get(f"/events/{eid}").get_json()["event"]
+    assert detail["ward"] == ward_id
+
+
+# --- Route-aware workflow definition over HTTP (Prompt 09 P0-3) -------------
+def test_disposal_definition_is_route_aware(client):
+    """Step counts are backend-owned and vary by route; the UI must ask."""
+    generic = client.get("/disposal/definition").get_json()
+    assert generic["total_steps"] == 5
+
+    red = client.get("/disposal/definition?route=RED").get_json()
+    assert red["route_code"] == "RED"
+    assert red["total_steps"] == 6
+    assert "puncture_proof" in [s["id"] for s in red["steps"]]
+
+    rad = client.get("/disposal/definition?route=RADIOACTIVE_STORAGE").get_json()
+    rad_ids = [s["id"] for s in rad["steps"]]
+    assert "shielded_storage" in rad_ids and "treatment" not in rad_ids

@@ -2,6 +2,7 @@
 import { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { CameraCapture } from './CameraCapture'
+import { WardSelector } from './WardSelector'
 import { AnalysisProgress } from './AnalysisProgress'
 import { DetectionCard } from './DetectionCard'
 import { ExpectedRouteCard } from './ExpectedRouteCard'
@@ -11,11 +12,16 @@ import { EvidenceSheet } from './EvidenceSheet'
 import { api, ApiError } from '@/lib/api/client'
 import { AnalyzeResponse, VerifyResponse } from '@/lib/types/api'
 import { resolveStream } from '@/lib/waste'
+import { unlockAudio, playVerificationBeep } from '@/lib/audio'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { AlertCircle, FileSearch, RotateCcw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 
 type FlowState = 'capture' | 'analyzing' | 'verifying' | 'result' | 'error'
+
+// Station is a fixed identifier for this exhibition terminal. Ward is chosen by
+// the operator per scan (see WardSelector) — it is never defaulted here.
+const STATION_ID = 'Station-1'
 
 export function ScanController() {
   const [flowState, setFlowState] = useState<FlowState>('capture')
@@ -25,14 +31,27 @@ export function ScanController() {
   const [actualRoute, setActualRoute] = useState<string | null>(null)
   const [isVerifying, setIsVerifying] = useState(false)
   const [showEvidence, setShowEvidence] = useState(false)
+  // The operator's current ward choice. Editable until an image is submitted, so
+  // the LAST value selected before analysis is the one that is used.
+  const [ward, setWard] = useState<string | null>(null)
+  // The ward the in-flight event was actually created with. Snapshotted at
+  // capture time so nothing that happens afterwards can change the ward the
+  // audit event is verified under.
+  const [eventWard, setEventWard] = useState<string | null>(null)
 
   const handleCapture = async (file: File) => {
+    // Ward is required: an audit event must never be attributed to a ward the
+    // operator did not choose. The capture buttons are disabled until then, so
+    // this is a safety net rather than the primary gate.
+    if (!ward) return
+    const capturedWard = ward
+    setEventWard(capturedWard)
     setFlowState('analyzing')
     setErrorMsg(null)
     const formData = new FormData()
     formData.append('image', file)
-    formData.append('station', 'Station-1')
-    formData.append('ward', 'ER')
+    formData.append('station', STATION_ID)
+    formData.append('ward', capturedWard)
     try {
       const result = await api.analyze(formData)
       setAnalyzeData(result)
@@ -44,17 +63,28 @@ export function ScanController() {
 
   const handleVerify = async (route: string) => {
     if (!analyzeData) return
+    // Prepare audio while the click's user activation is still valid (before any
+    // await). No sound is produced here — the tone plays only once a compliance
+    // result actually exists.
+    unlockAudio()
     setActualRoute(route)
     setIsVerifying(true)
     try {
       const result = await api.verify({
         event_id: analyzeData.event_id,
         actual_route: route,
-        station: 'Station-1',
-        ward: 'ER',
+        station: STATION_ID,
+        // The ward captured with this event — not whatever the selector shows now.
+        ward: eventWard ?? undefined,
       })
       setVerifyData(result)
       setFlowState('result')
+      // Exactly one beep per completed verification attempt, for CORRECT and
+      // VIOLATION alike. This lives in the async click handler (not an effect),
+      // so re-renders, unrelated state changes, StrictMode double-invocation and
+      // back/forward navigation cannot replay it. Failures return above and stay
+      // silent. Purely supplementary — ComplianceResult remains authoritative.
+      playVerificationBeep()
     } catch (e) {
       handleError(e)
     } finally {
@@ -66,6 +96,11 @@ export function ScanController() {
   const handleError = (e: unknown) => {
     let msg = 'Something went wrong. Please try again.'
     if (e instanceof ApiError) {
+      if (e.code === 'INVALID_WARD') {
+        setErrorMsg('That ward is not configured for this facility. Please choose a ward from the list.')
+        setFlowState('error')
+        return
+      }
       switch (e.status) {
         case 400:
           msg = 'That image could not be read. Please capture or upload a clear photo.'
@@ -103,6 +138,10 @@ export function ScanController() {
     setActualRoute(null)
     setErrorMsg(null)
     setIsVerifying(false)
+    // The ward selection is an explicit operator choice and survives to the next
+    // item (operators scan a run of items in one ward). The per-event snapshot is
+    // cleared so nothing is carried onto a different event.
+    setEventWard(null)
     setFlowState('capture')
   }
 
@@ -129,7 +168,12 @@ export function ScanController() {
       <AnimatePresence mode="wait">
         {flowState === 'capture' && (
           <motion.div key="capture" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-            <CameraCapture onCapture={handleCapture} />
+            <WardSelector value={ward} onChange={setWard} />
+            <CameraCapture
+              onCapture={handleCapture}
+              disabled={!ward}
+              disabledHint="Select the ward this waste came from, then capture or upload a photo."
+            />
           </motion.div>
         )}
 
@@ -148,6 +192,14 @@ export function ScanController() {
             className="grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-8"
           >
             <div className="lg:col-span-5 space-y-6">
+              {eventWard && (
+                <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">
+                  <span>Ward</span>
+                  <span className="rounded-md bg-accent px-2 py-0.5 font-mono text-xs tracking-normal text-foreground">
+                    {eventWard}
+                  </span>
+                </div>
+              )}
               <DetectionCard data={analyzeData} />
               <ExpectedRouteCard data={analyzeData} />
               {expectedMeta && (

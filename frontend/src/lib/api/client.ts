@@ -1,4 +1,4 @@
-import { AnalyzeResponse, VerifyResponse, HealthStatus, PolicyMetadata, OperationsOverview, WorkflowDefinition, DisposalWorkflow, AnalyticsData, EventRecord, CollectionJob } from '../types/api';
+import { AnalyzeResponse, VerifyResponse, HealthStatus, PolicyMetadata, OperationsOverview, WorkflowDefinition, DisposalWorkflow, AnalyticsData, EventRecord, CollectionJob, FacilityContext } from '../types/api';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://127.0.0.1:5000';
 
@@ -64,8 +64,12 @@ export const api = {
   health: (): Promise<HealthStatus> => 
     fetchApi<HealthStatus>('/health'),
 
-  policy: (): Promise<PolicyMetadata> => 
+  policy: (): Promise<PolicyMetadata> =>
     fetchApi<PolicyMetadata>('/policy'),
+
+  /** Configured facility wards — the single source of truth for the ward selector. */
+  facilityWards: (): Promise<FacilityContext & { status: string }> =>
+    fetchApi<FacilityContext & { status: string }>('/facility/wards'),
 
   operations: (): Promise<{ status: string; operations: OperationsOverview }> =>
     fetchApi<{ status: string; operations: OperationsOverview }>('/operations'),
@@ -79,8 +83,15 @@ export const api = {
   eventDetail: (eventId: string): Promise<{ status: string; event: EventRecord }> =>
     fetchApi<{ status: string; event: EventRecord }>(`/events/${eventId}`),
 
-  disposalDefinition: (): Promise<WorkflowDefinition & { status: string }> =>
-    fetchApi<WorkflowDefinition & { status: string }>('/disposal/definition'),
+  /**
+   * Workflow DEFINITION from the backend. Pass a route code to get that stream's
+   * route-specific step list (step counts differ per route and are never
+   * hardcoded in the frontend).
+   */
+  disposalDefinition: (route?: string | null): Promise<WorkflowDefinition & { status: string }> =>
+    fetchApi<WorkflowDefinition & { status: string }>(
+      route ? `/disposal/definition?route=${encodeURIComponent(route)}` : '/disposal/definition'
+    ),
 
   disposalWorkflow: (eventId: string): Promise<{ status: string; workflow: DisposalWorkflow }> =>
     fetchApi<{ status: string; workflow: DisposalWorkflow }>(`/disposal/${eventId}`),

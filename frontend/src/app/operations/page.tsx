@@ -10,13 +10,21 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "
 import { ArrowRight, Info, ShieldCheck, Loader2, AlertTriangle } from "lucide-react"
 import { useRouter } from "next/navigation"
 
+/**
+ * Simulated capacity track. At 0% the track is deliberately left completely
+ * empty — the backend reports 0% whenever nothing is awaiting collection, so an
+ * empty bin can never show a leftover historical fill.
+ */
 function CapacityBar({ percent, barClass }: { percent: number; barClass: string }) {
+  const pct = Math.min(Math.max(percent, 0), 100)
   return (
     <div className="h-2.5 w-full overflow-hidden rounded-full bg-muted">
-      <div
-        className={`h-full rounded-full transition-all duration-700 ${barClass}`}
-        style={{ width: `${Math.min(Math.max(percent, 0), 100)}%` }}
-      />
+      {pct > 0 && (
+        <div
+          className={`h-full rounded-full transition-all duration-700 ${barClass}`}
+          style={{ width: `${pct}%` }}
+        />
+      )}
     </div>
   )
 }
@@ -65,11 +73,13 @@ export default function OperationsPage() {
       return
     }
     // A collection job operates on the BIN (a snapshot of its routed audit
-    // events) — never an arbitrary single event. The backend is the source of
-    // truth for eligibility and workflow state.
-    if (bin.pending_collection_count <= 0) {
+    // events) — never an arbitrary single event. `can_start_collection` is the
+    // backend's answer; the frontend does not re-derive eligibility.
+    if (!bin.can_start_collection) {
       setNotice(
-        `${bin.label} shows high capacity but has no routed item records available to collect. Nothing to dispose.`
+        bin.pending_collection_count > 0
+          ? `${bin.label}: every item in this bin already belongs to a collection cycle. A new cycle starts when a new item is routed here.`
+          : `${bin.label} has no items pending collection. Nothing to dispose.`
       )
       return
     }
@@ -190,7 +200,6 @@ function PriorityBanner({
   const meta = resolveStream(bin.route_code, undefined)
   const t = tone(bin.fill_status)
   const hex = bin.hex || meta.hex
-  const hasPending = bin.pending_collection_count > 0
   return (
     <div className={`relative overflow-hidden rounded-2xl border ${t.border} ${t.bg} p-5 shadow-card sm:p-6`}>
       <div className="flex flex-col gap-6 sm:flex-row sm:items-center">
@@ -235,7 +244,7 @@ function PriorityBanner({
                 <p className={`mt-3 text-sm font-semibold uppercase tracking-wide ${t.text}`}>
                   {bin.fill_status === "CRITICAL" ? "Collection required" : "Approaching capacity"}
                 </p>
-                {hasPending ? (
+                {bin.can_start_collection ? (
                   <>
                     <p className="mt-1 text-sm text-muted-foreground">
                       {bin.pending_collection_count} routed item
@@ -249,7 +258,7 @@ function PriorityBanner({
                   </>
                 ) : (
                   <p className="mt-1 text-sm text-muted-foreground">
-                    No routed item records available to collect.
+                    {bin.collection_state_label}.
                   </p>
                 )}
               </>
@@ -277,11 +286,11 @@ function BinCard({
   const meta = resolveStream(bin.route_code, undefined)
   const t = tone(bin.fill_status)
   const hex = bin.hex || meta.hex
-  // Actionability is driven by real routed content and job state — NOT by
-  // capacity alone. A high-capacity bin with zero routed events offers nothing;
-  // any bin with pending events can start; a bin with an active job continues.
+  // Actionability comes from the BACKEND, never from capacity: `active_job`
+  // decides Continue, `can_start_collection` decides Start. A bin at 0% with
+  // nothing pending offers neither.
   const active = bin.active_job || null
-  const canCollect = !active && bin.pending_collection_count > 0
+  const canCollect = bin.can_start_collection
   const stepNow = active
     ? Math.min(active.completed_count + 1, active.total_steps)
     : 0
@@ -310,7 +319,7 @@ function BinCard({
         <CapacityBar percent={bin.fill_percent} barClass={t.bar} />
       </div>
 
-      {/* Collection state line — sourced entirely from backend job/pending data */}
+      {/* Collection state line — the backend's `collection_state_label`, verbatim */}
       <div className="mt-3 min-h-[1.25rem] text-xs font-medium">
         {active ? (
           <span className="text-primary">
@@ -321,7 +330,7 @@ function BinCard({
             {bin.pending_collection_count} item{bin.pending_collection_count === 1 ? "" : "s"} pending collection
           </span>
         ) : (
-          <span className="text-muted-foreground/70">No items pending collection</span>
+          <span className="text-muted-foreground/70">{bin.collection_state_label}</span>
         )}
       </div>
 
@@ -389,10 +398,13 @@ function BinDetailSheet({ bin, onClose }: { bin: BinOperation | null; onClose: (
             <dl className="mt-6 space-y-3 border-t border-border pt-5 text-sm">
               <Row label="Route" value={bin.route_code} />
               <Row label="Waste type" value={bin.category || "—"} />
+              <Row label="Collection state" value={bin.collection_state_label} />
               <Row label="Capacity units" value={String(bin.capacity_units)} />
               <Row label="Routed events (total)" value={String(bin.routed_event_count)} />
               <Row label="Pending collection" value={String(bin.pending_collection_count)} />
+              <Row label="Eligible for a new cycle" value={String(bin.eligible_for_collection_count)} />
               <Row label="Active collection job" value={bin.active_job ? bin.active_job.job_id : "—"} />
+              <Row label="Capacity basis" value={bin.capacity_basis} />
               <Row label="Data source" value={bin.data_source} />
               <Row label="Sensing" value={bin.sensing} />
             </dl>

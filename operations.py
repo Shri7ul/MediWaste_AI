@@ -44,15 +44,20 @@ def _bins_from_policy():
     return bins
 
 
-def _simulated_fill(bin_id, route_code, event_count):
-    """Deterministic pseudo fill level in [0, 100].
+def _simulated_fill(bin_id, route_code, pending_count):
+    """Deterministic pseudo fill level in [0, 100], grounded on PENDING items.
 
-    Combines a stable per-bin base (hash of the id) with real routing activity
-    so the number is reproducible and loosely reflects usage — but simulated.
+    HARD RULE: zero pending items means an EMPTY bin — 0%. There is no sensor and
+    no history to read, so any non-zero baseline on an empty bin would be a
+    fabricated reading that contradicts "0 items pending collection". Above zero
+    the value is a stable per-bin offset plus real routing activity, so it is
+    reproducible across reloads without pretending to be a measurement.
     """
+    if pending_count <= 0:
+        return 0
     h = hashlib.sha256(bin_id.encode("utf-8")).hexdigest()
-    base = int(h[:2], 16) % 40  # stable 0..39 baseline
-    activity = min(event_count * 7, 60)  # grows with real routed events, capped
+    base = 8 + int(h[:2], 16) % 12   # stable 8..19 per-bin offset, non-zero only
+    activity = min(pending_count * 9, 80)
     return min(base + activity, 100)
 
 
@@ -66,16 +71,38 @@ def _status_for(pct):
     return "OK"
 
 
-def _enrich(b, usage, pending):
-    # Total routed events ever (informational); PENDING = not yet collected by
-    # any collection job. Simulated fill is grounded on PENDING so a completed
-    # collection deterministically lowers the bin — no fabricated sensor.
+# Collection state is decided HERE, not in React. The frontend renders these
+# strings and flags verbatim so bin state can never be inferred from fill %.
+_STATE_LABELS = {
+    "EMPTY": "No items pending collection",
+    "PENDING_COLLECTION": "Awaiting collection",
+    "IN_PROGRESS": "Collection in progress",
+    "AWAITING_NEXT_CYCLE": "Collected · awaiting next cycle",
+}
+
+
+def _enrich(b, usage, pending, eligible):
+    # THREE distinct real quantities, never conflated:
+    #   routed_event_count  - every audit event ever routed here (never shrinks)
+    #   pending_collection  - still physically in the bin (drops on job COMPLETE)
+    #   eligible_for_...    - not yet snapshotted into any job (drops on job START)
     total = usage.get(b["route_code"], 0)
     pending_count = pending.get(b["route_code"], 0)
+    eligible_count = eligible.get(b["route_code"], 0)
     pct = _simulated_fill(b["bin_id"], b["route_code"], pending_count)
     # Backend owns the collection state: if an IN_PROGRESS job exists for this
     # route the card should offer "Continue disposal", not a fresh "Start".
     active_job = collection.active_job_summary(b["route_code"])
+    if active_job:
+        state = "IN_PROGRESS"
+    elif pending_count <= 0:
+        state = "EMPTY"
+    elif eligible_count <= 0:
+        # Everything in the bin belongs to a job that is already finished for
+        # this cycle; nothing new can be started until a new event arrives.
+        state = "AWAITING_NEXT_CYCLE"
+    else:
+        state = "PENDING_COLLECTION"
     return {
         **b,
         "capacity_units": _NOMINAL_CAPACITY,
@@ -83,6 +110,12 @@ def _enrich(b, usage, pending):
         "fill_status": _status_for(pct),
         "routed_event_count": total,
         "pending_collection_count": pending_count,
+        "eligible_for_collection_count": eligible_count,
+        "collection_state": state,
+        "collection_state_label": _STATE_LABELS[state],
+        "can_start_collection": active_job is None and eligible_count > 0,
+        "is_empty": pending_count <= 0,
+        "capacity_basis": "pending_collection_count",
         "active_job": active_job,
         "data_source": DATA_SOURCE,
         "sensing": "none",  # explicit: no physical sensing exists
@@ -93,12 +126,15 @@ def list_bins():
     """All simulated bins, one per disposal stream."""
     usage = audit_store.route_usage()
     pending = audit_store.route_usage_pending()
-    bins = [_enrich(b, usage, pending) for b in _bins_from_policy()]
+    eligible = audit_store.route_usage_eligible()
+    bins = [_enrich(b, usage, pending, eligible) for b in _bins_from_policy()]
     return {
         "data_source": DATA_SOURCE,
         "disclaimer": ("Bin fill levels are SIMULATED for the exhibition. No "
                        "physical bin sensor, IoT device, weight cell, or RFID "
                        "is used."),
+        "capacity_basis": ("Simulated capacity is derived from audit events still "
+                           "awaiting collection; it is not a physical reading."),
         "count": len(bins),
         "bins": bins,
     }
@@ -109,9 +145,10 @@ def get_bin(bin_id):
     bin_id = (bin_id or "").strip().lower()
     usage = audit_store.route_usage()
     pending = audit_store.route_usage_pending()
+    eligible = audit_store.route_usage_eligible()
     for b in _bins_from_policy():
         if b["bin_id"] == bin_id:
-            return _enrich(b, usage, pending)
+            return _enrich(b, usage, pending, eligible)
     return None
 
 
@@ -128,6 +165,7 @@ def overview():
     return {
         "data_source": DATA_SOURCE,
         "disclaimer": data["disclaimer"],
+        "capacity_basis": data["capacity_basis"],
         "total_bins": len(bins),
         "bins_needing_attention": len(attention),
         "attention": [b["bin_id"] for b in attention],

@@ -5,9 +5,13 @@ import { Camera, Upload, X, RefreshCw, ImageUp } from 'lucide-react'
 
 interface CameraCaptureProps {
   onCapture: (file: File) => void;
+  /** Blocks capture/upload until required scan context (ward) is chosen. */
+  disabled?: boolean;
+  /** Shown in place of the normal hint when `disabled` is true. */
+  disabledHint?: string;
 }
 
-export function CameraCapture({ onCapture }: CameraCaptureProps) {
+export function CameraCapture({ onCapture, disabled, disabledHint }: CameraCaptureProps) {
   const [stream, setStream] = useState<MediaStream | null>(null)
   const [error, setError] = useState<string | null>(null)
   const videoRef = useRef<HTMLVideoElement>(null)
@@ -93,18 +97,21 @@ export function CameraCapture({ onCapture }: CameraCaptureProps) {
           Capture the waste item
         </h2>
         <p className="mt-1 max-w-md text-sm text-muted-foreground">
-          Use your camera or upload a photo. We&apos;ll identify the item and tell you
-          which bin it belongs in.
+          {disabled && disabledHint
+            ? disabledHint
+            : <>Use your camera or upload a photo. We&apos;ll identify the item and tell you
+              which bin it belongs in.</>}
         </p>
 
         <div className="mt-6 flex w-full flex-col sm:flex-row gap-3 sm:justify-center">
-          <Button onClick={startCamera} size="lg" className="w-full sm:w-auto">
+          <Button onClick={startCamera} size="lg" disabled={disabled} className="w-full sm:w-auto">
             <Camera className="mr-2 h-5 w-5" /> Scan waste
           </Button>
           <Button
             variant="outline"
             onClick={() => fileInputRef.current?.click()}
             size="lg"
+            disabled={disabled}
             className="w-full sm:w-auto"
           >
             <Upload className="mr-2 h-5 w-5" /> Upload image
@@ -115,6 +122,7 @@ export function CameraCapture({ onCapture }: CameraCaptureProps) {
             onChange={handleFileUpload}
             accept="image/jpeg,image/png,image/jpg"
             className="hidden"
+            disabled={disabled}
           />
         </div>
 

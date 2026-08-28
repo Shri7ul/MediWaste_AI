@@ -35,6 +35,7 @@ from werkzeug.exceptions import RequestEntityTooLarge, HTTPException
 from dotenv import load_dotenv
 
 import policy_engine
+import facility
 import rag_engine
 import llm_client
 import audit_store
@@ -198,7 +199,15 @@ def analyze():
                    "UNSUPPORTED_TYPE")
 
     station = (request.form.get("station") or "").strip() or None
-    ward = (request.form.get("ward") or "").strip() or None
+    # Ward is operational CONTEXT, never a disposal input. It must be a ward the
+    # facility actually has, otherwise the Dashboard's per-ward analytics would
+    # aggregate values nobody can trace back. An omitted ward stays the
+    # pre-existing UNKNOWN state (legacy staff UI); an unrecognised one is a
+    # client bug and is rejected rather than silently stored.
+    ward, ward_ok = facility.normalize_ward(request.form.get("ward"))
+    if not ward_ok:
+        return err("Unknown ward. Choose a configured facility ward.", 400,
+                   "INVALID_WARD")
 
     # Save with a unique, secure name (never overwrite; never trust input name).
     ext = image.filename.rsplit(".", 1)[1].lower()
@@ -307,10 +316,13 @@ def verify():
     event_id = data.get("event_id")
     actual_route = (data.get("actual_route") or "").strip().upper() or None
     station = (data.get("station") or "").strip() or None
-    ward = (data.get("ward") or "").strip() or None
+    ward, ward_ok = facility.normalize_ward(data.get("ward"))
 
     if not event_id:
         return err("event_id is required.", 400, "MISSING_EVENT_ID")
+    if not ward_ok:
+        return err("Unknown ward. Choose a configured facility ward.", 400,
+                   "INVALID_WARD")
 
     event = audit_store.get_event(event_id)
     if not event:
@@ -406,6 +418,16 @@ def event_detail(event_id):
 @app.route("/analytics")
 def analytics():
     return jsonify({"status": "ok", "analytics": audit_store.analytics()})
+
+
+# --- Facility context (ward registry; NOT a disposal decision input) ---------
+@app.route("/facility/wards")
+def facility_wards():
+    """
+    The configured wards an operator may attribute a scan to. This is the single
+    source of truth the /scan UI must read — the frontend never hardcodes wards.
+    """
+    return jsonify({"status": "ok", **facility.context()})
 
 
 # --- Operations / bin prototype (SIMULATED — no physical sensing) ------------
