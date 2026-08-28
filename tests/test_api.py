@@ -82,3 +82,116 @@ def test_verify_unknown_event_is_404(client):
 
 def test_unknown_route_is_404(client):
     assert client.get("/no-such-endpoint").status_code == 404
+
+
+# --- Upload error handling ---------------------------------------------------
+def test_analyze_unsupported_file_type_is_415(client):
+    import io
+    data = {"image": (io.BytesIO(b"not an image"), "notes.txt")}
+    r = client.post("/analyze", data=data, content_type="multipart/form-data")
+    assert r.status_code == 415
+    body = r.get_json()
+    assert body["status"] == "error"
+    assert body["code"] == "UNSUPPORTED_TYPE"
+
+
+def test_analyze_empty_filename_is_400(client):
+    import io
+    data = {"image": (io.BytesIO(b""), "")}
+    r = client.post("/analyze", data=data, content_type="multipart/form-data")
+    assert r.status_code == 400
+    assert r.get_json()["status"] == "error"
+
+
+# --- Operations (SIMULATED bins) --------------------------------------------
+def test_operations_bins_marked_simulated(client):
+    r = client.get("/operations/bins")
+    assert r.status_code == 200
+    data = r.get_json()
+    assert data["data_source"] == "SIMULATED"
+    assert data["count"] == 7
+    for b in data["bins"]:
+        assert b["data_source"] == "SIMULATED"
+        assert b["sensing"] == "none"
+    # No claim of physical sensing anywhere in the payload.
+    body = r.get_data(as_text=True).lower()
+    assert "iot" not in body or "no " in body  # disclaimer negates IoT claims
+
+
+def test_operations_overview_ok(client):
+    r = client.get("/operations")
+    assert r.status_code == 200
+    ov = r.get_json()["operations"]
+    assert ov["data_source"] == "SIMULATED"
+    assert ov["total_bins"] == 7
+
+
+def test_operations_single_bin_and_404(client):
+    r = client.get("/operations/bins/red")
+    assert r.status_code == 200
+    assert r.get_json()["bin"]["route_code"] == "RED"
+    r2 = client.get("/operations/bins/not-a-bin")
+    assert r2.status_code == 404
+    assert r2.get_json()["code"] == "BIN_NOT_FOUND"
+
+
+# --- Disposal workflow -------------------------------------------------------
+def _seed_event():
+    return audit_store.create_event({
+        "image_id": "api-wf", "canonical_category": "SHARPS",
+        "expected_route": "RED", "compliance_status": "PENDING_VERIFICATION",
+    })["event_id"]
+
+
+def test_disposal_definition_lists_five_steps(client):
+    r = client.get("/disposal/definition")
+    assert r.status_code == 200
+    assert r.get_json()["total_steps"] == 5
+
+
+def test_disposal_get_missing_event_is_404(client):
+    r = client.get("/disposal/does-not-exist")
+    assert r.status_code == 404
+    assert r.get_json()["code"] == "EVENT_NOT_FOUND"
+
+
+def test_disposal_creation_and_sequential_completion(client):
+    eid = _seed_event()
+    r = client.get(f"/disposal/{eid}")
+    assert r.status_code == 200
+    wf = r.get_json()["workflow"]
+    assert wf["current_step"] == "segregate"
+    assert wf["completed_count"] == 0
+
+    # Skipping ahead is rejected with 409 OUT_OF_ORDER.
+    bad = client.post(f"/disposal/{eid}/steps/treatment/complete")
+    assert bad.status_code == 409
+    assert bad.get_json()["code"] == "OUT_OF_ORDER"
+
+    # Completing in order advances the workflow.
+    ok = client.post(f"/disposal/{eid}/steps/segregate/complete")
+    assert ok.status_code == 200
+    assert ok.get_json()["workflow"]["completed_count"] == 1
+
+    # Re-completing is 409 ALREADY_COMPLETE.
+    dup = client.post(f"/disposal/{eid}/steps/segregate/complete")
+    assert dup.status_code == 409
+    assert dup.get_json()["code"] == "ALREADY_COMPLETE"
+
+
+def test_disposal_unknown_step_is_404(client):
+    eid = _seed_event()
+    r = client.post(f"/disposal/{eid}/steps/ghost/complete")
+    assert r.status_code == 404
+    assert r.get_json()["code"] == "UNKNOWN_STEP"
+
+
+# --- Analytics enrichment surfaced over HTTP --------------------------------
+def test_analytics_enrichment_keys_present(client):
+    r = client.get("/analytics")
+    a = r.get_json()["analytics"]
+    for key in ("by_waste_type", "by_ward", "by_station", "top_violations",
+                "compliance_rate", "violation_rate", "review_rate",
+                "has_ward_data", "has_station_data", "data_source"):
+        assert key in a
+    assert a["data_source"] == "REAL_EVENTS"

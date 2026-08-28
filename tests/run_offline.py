@@ -21,12 +21,29 @@ import importlib.util
 import inspect
 import os
 import sys
+import tempfile
 import traceback
 
 TESTS_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(TESTS_DIR)
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
+
+
+def _reset_audit_db():
+    """Mirror the pytest autouse fixture (see conftest.py): give each test a
+    fresh, empty audit/collection DB so persistent state never leaks between
+    tests. Tolerant if audit_store cannot be imported in a minimal environment.
+    """
+    try:
+        import audit_store
+    except Exception:  # noqa: BLE001 — audit_store may be unavailable offline
+        return None
+    tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+    tmp.close()
+    audit_store.DB_PATH = tmp.name
+    audit_store.init_db()
+    return tmp.name
 
 
 def _load_module(path):
@@ -90,6 +107,7 @@ def main():
                 print(f"  SKIP  {name}  ({skip_reason})")
                 continue
             try:
+                _reset_audit_db()  # deterministic isolated state per test
                 fn()
                 passed += 1
                 print(f"  PASS  {name}")

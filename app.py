@@ -31,13 +31,16 @@ from flask import (
     send_from_directory, abort,
 )
 from werkzeug.utils import secure_filename
-from werkzeug.exceptions import RequestEntityTooLarge
+from werkzeug.exceptions import RequestEntityTooLarge, HTTPException
 from dotenv import load_dotenv
 
 import policy_engine
 import rag_engine
 import llm_client
 import audit_store
+import disposal
+import operations
+import collection
 
 load_dotenv()
 
@@ -47,12 +50,45 @@ UPLOAD_FOLDER = os.path.join(BASE_DIR, "uploads")
 ALLOWED_EXTENSIONS = {"jpg", "jpeg", "png"}
 MAX_CONTENT_LENGTH = int(os.getenv("MAX_UPLOAD_MB", "10")) * 1024 * 1024
 TOP_K = int(os.getenv("RAG_TOP_K", "8"))
+# Comma-separated allowlist for the Next.js frontend, e.g.
+# "http://localhost:3000,https://showcase.example". Empty -> CORS disabled.
+CORS_ORIGINS = [o.strip() for o in os.getenv("CORS_ALLOW_ORIGINS", "").split(",")
+                if o.strip()]
 
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 app = Flask(__name__)
 app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
 app.config["MAX_CONTENT_LENGTH"] = MAX_CONTENT_LENGTH
+
+
+# --- Consistent JSON error envelope ------------------------------------------
+def err(message, status, code=None, **extra):
+    """Return a consistent JSON error response. Never leaks secrets/traces."""
+    body = {"status": "error", "error": message}
+    if code:
+        body["code"] = code
+    body.update(extra)
+    return jsonify(body), status
+
+
+# --- CORS (opt-in, no secrets) ----------------------------------------------
+def _cors_origin():
+    origin = request.headers.get("Origin")
+    if origin and origin in CORS_ORIGINS:
+        return origin
+    return None
+
+
+@app.after_request
+def _apply_cors(response):
+    origin = _cors_origin()
+    if origin:
+        response.headers["Access-Control-Allow-Origin"] = origin
+        response.headers["Vary"] = "Origin"
+        response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+        response.headers["Access-Control-Allow-Headers"] = "Content-Type"
+    return response
 
 # --- Lazy, cached heavy modules (CLIP + Roboflow) ---------------------------
 # Imported on first use so the server can start (and serve /health, the UI, and
@@ -93,7 +129,7 @@ def _route_meta_map():
     return {code: policy_engine.route_meta(code) for code in policy_engine.STREAMS}
 
 
-def _build_audit_from_analysis(analysis, image_filename, image_id, station,
+def _build_audit_from_analysis(analysis, image_filename, image_id, station, ward,
                                rag_result, llm_result):
     primary = analysis.get("primary") or {}
     decision = analysis.get("decision") or {}
@@ -105,6 +141,7 @@ def _build_audit_from_analysis(analysis, image_filename, image_id, station,
         "image_filename": image_filename,
         "image_id": image_id,
         "station": station or None,
+        "ward": ward or None,
         "detected_items": [d.get("item") for d in detections],
         "raw_labels": [d.get("raw_class") for d in detections],
         "confidence": primary.get("confidence"),
@@ -151,17 +188,17 @@ def uploaded_file(filename):
 @app.route("/analyze", methods=["POST"])
 def analyze():
     if "image" not in request.files:
-        return jsonify({"status": "error", "error": "No image provided."}), 400
+        return err("No image provided.", 400, "NO_IMAGE")
     image = request.files["image"]
     if not image or image.filename == "":
-        return jsonify({"status": "error", "error": "Empty filename."}), 400
+        return err("Empty filename.", 400, "EMPTY_FILENAME")
     if not allowed_file(image.filename):
-        return jsonify({
-            "status": "error",
-            "error": "Unsupported file type. Allowed: jpg, jpeg, png.",
-        }), 400
+        # Unsupported media type is a 415, distinct from a malformed request.
+        return err("Unsupported file type. Allowed: jpg, jpeg, png.", 415,
+                   "UNSUPPORTED_TYPE")
 
     station = (request.form.get("station") or "").strip() or None
+    ward = (request.form.get("ward") or "").strip() or None
 
     # Save with a unique, secure name (never overwrite; never trust input name).
     ext = image.filename.rsplit(".", 1)[1].lower()
@@ -175,7 +212,7 @@ def analyze():
             os.remove(path)
         except OSError:
             pass
-        return jsonify({"status": "error", "error": "File is not a valid image."}), 400
+        return err("File is not a valid image.", 400, "INVALID_IMAGE")
 
     t_total = time.perf_counter()
 
@@ -183,10 +220,8 @@ def analyze():
     try:
         visual_context, pipeline = _get_vision()
     except Exception as e:
-        return jsonify({
-            "status": "error",
-            "error": f"Vision stack unavailable: {type(e).__name__}",
-        }), 503
+        return err(f"Vision stack unavailable: {type(e).__name__}", 503,
+                   "VISION_UNAVAILABLE")
 
     try:
         t0 = time.perf_counter()
@@ -195,10 +230,7 @@ def analyze():
 
         analysis = pipeline.analyze_image(path, context)
     except Exception as e:
-        return jsonify({
-            "status": "error",
-            "error": f"Analysis failed: {type(e).__name__}: {str(e)[:200]}",
-        }), 500
+        return err(f"Analysis failed: {type(e).__name__}", 500, "ANALYSIS_FAILED")
 
     decision = analysis.get("decision") or {}
     primary_item = (analysis.get("primary") or {}).get("item")
@@ -230,7 +262,7 @@ def analyze():
     # --- Audit event (PENDING verification) ----------------------------------
     audit_event = audit_store.create_event(
         _build_audit_from_analysis(
-            analysis, stored_name, image_id, station, rag_result, llm_result
+            analysis, stored_name, image_id, station, ward, rag_result, llm_result
         )
     )
 
@@ -275,13 +307,14 @@ def verify():
     event_id = data.get("event_id")
     actual_route = (data.get("actual_route") or "").strip().upper() or None
     station = (data.get("station") or "").strip() or None
+    ward = (data.get("ward") or "").strip() or None
 
     if not event_id:
-        return jsonify({"status": "error", "error": "event_id is required."}), 400
+        return err("event_id is required.", 400, "MISSING_EVENT_ID")
 
     event = audit_store.get_event(event_id)
     if not event:
-        return jsonify({"status": "error", "error": "Event not found."}), 404
+        return err("Event not found.", 404, "EVENT_NOT_FOUND")
 
     payload = event.get("payload") or {}
     decision = payload.get("decision") or {}
@@ -327,6 +360,7 @@ def verify():
         compliance_status=verification["status"],
         reason_code=verification.get("reason_code"),
         station=station or event.get("station"),
+        ward=ward or event.get("ward"),
         evidence_ids=rag_result.get("evidence_ids", []),
         rag_status=rag_result.get("status"),
         llm_status=llm_result.get("status"),
@@ -347,10 +381,16 @@ def verify():
 def events():
     limit = min(int(request.args.get("limit", 100)), 500)
     offset = int(request.args.get("offset", 0))
+    events_list = audit_store.list_events(limit=limit, offset=offset)
+    # Tag each event with its collection job (if any). Events remain
+    # event-centric — this is a reference only and never mutates the event.
+    job_map = audit_store.event_job_map()
+    for ev in events_list:
+        ev["collection_job_id"] = job_map.get(ev.get("event_id"))
     return jsonify({
         "status": "ok",
         "count": audit_store.count_events(),
-        "events": audit_store.list_events(limit=limit, offset=offset),
+        "events": events_list,
     })
 
 
@@ -358,13 +398,106 @@ def events():
 def event_detail(event_id):
     event = audit_store.get_event(event_id)
     if not event:
-        return jsonify({"status": "error", "error": "Event not found."}), 404
+        return err("Event not found.", 404, "EVENT_NOT_FOUND")
+    event["collection_job_id"] = audit_store.event_job_map().get(event_id)
     return jsonify({"status": "ok", "event": event})
 
 
 @app.route("/analytics")
 def analytics():
     return jsonify({"status": "ok", "analytics": audit_store.analytics()})
+
+
+# --- Operations / bin prototype (SIMULATED — no physical sensing) ------------
+@app.route("/operations")
+def operations_overview():
+    return jsonify({"status": "ok", "operations": operations.overview()})
+
+
+@app.route("/operations/bins")
+def operations_bins():
+    return jsonify({"status": "ok", **operations.list_bins()})
+
+
+@app.route("/operations/bins/<bin_id>")
+def operations_bin(bin_id):
+    b = operations.get_bin(bin_id)
+    if not b:
+        return err("Bin not found.", 404, "BIN_NOT_FOUND")
+    return jsonify({"status": "ok", "bin": b})
+
+
+# --- Disposal workflow (sequential state machine) ----------------------------
+@app.route("/disposal/definition")
+def disposal_definition():
+    # Optional ?route= yields the route-specific workflow (variable length);
+    # without it the generic facility workflow is returned. Always carries
+    # provenance so the UI never presents it as a regulatory citation.
+    route = request.args.get("route")
+    return jsonify({"status": "ok", **disposal.definition(route)})
+
+
+# ---------------------------------------------------------------------------
+# BIN COLLECTION JOBS. Operational disposal cycles that reference a SNAPSHOT of
+# existing audit event_ids. A job is a distinct domain object from an event; it
+# never mutates or deletes the audit trail. Static "jobs" segment is ranked
+# above the dynamic /disposal/<event_id> route by Werkzeug, so the legacy
+# event-level routes below keep working unchanged.
+# ---------------------------------------------------------------------------
+@app.route("/disposal/jobs", methods=["POST"])
+def collection_start():
+    body = request.get_json(silent=True) or {}
+    bin_id = body.get("bin_id") or request.args.get("bin_id")
+    if not bin_id:
+        return err("A bin_id is required to start a collection.", 400,
+                   "BIN_ID_REQUIRED")
+    payload, status = collection.start_collection(bin_id)
+    return jsonify(payload), status
+
+
+@app.route("/disposal/jobs")
+def collection_list():
+    return jsonify({"status": "ok", "jobs": collection.list_jobs()})
+
+
+@app.route("/disposal/jobs/<job_id>")
+def collection_get(job_id):
+    job = collection.get_job(job_id)
+    if job is None:
+        return err("Collection job not found.", 404, "JOB_NOT_FOUND")
+    return jsonify({"status": "ok", "job": job})
+
+
+@app.route("/disposal/jobs/<job_id>/events")
+def collection_job_events(job_id):
+    """The audit events referenced by this job's snapshot (read-only). Lets the
+    collection record / 'View audit events' show ONLY this job's events, never
+    an arbitrary single event."""
+    events_list = collection.events_for_job(job_id)
+    if events_list is None:
+        return err("Collection job not found.", 404, "JOB_NOT_FOUND")
+    return jsonify({"status": "ok", "job_id": job_id,
+                    "count": len(events_list), "events": events_list})
+
+
+@app.route("/disposal/jobs/<job_id>/steps/<step_id>/complete", methods=["POST"])
+def collection_complete(job_id, step_id):
+    payload, status = collection.complete_step(job_id, step_id)
+    return jsonify(payload), status
+
+
+@app.route("/disposal/<event_id>")
+def disposal_get(event_id):
+    wf = disposal.get_workflow(event_id)
+    if wf is None:
+        return err("Event not found.", 404, "EVENT_NOT_FOUND")
+    return jsonify({"status": "ok", "workflow": wf})
+
+
+@app.route("/disposal/<event_id>/steps/<step_id>/complete", methods=["POST"])
+def disposal_complete(event_id, step_id):
+    payload, status = disposal.complete_step(event_id, step_id)
+    return jsonify(payload), status
 
 
 @app.route("/policy")
@@ -395,6 +528,11 @@ def health():
             "model_ref": os.getenv("MODEL_ID"),
             "pinecone_index": os.getenv("PINECONE_INDEX_NAME"),
             "openrouter_model": os.getenv("OPENROUTER_MODEL"),
+            "cors_enabled": bool(CORS_ORIGINS),
+        },
+        "features": {
+            "disposal_workflow_steps": disposal.definition()["total_steps"],
+            "operations_bins": "SIMULATED",
         },
         "audit_events": audit_store.count_events(),
     })
@@ -402,11 +540,35 @@ def health():
 
 @app.errorhandler(RequestEntityTooLarge)
 def too_large(_e):
-    return jsonify({
-        "status": "error",
-        "error": f"File too large (max {MAX_CONTENT_LENGTH // (1024*1024)} MB).",
-    }), 413
+    return err(f"File too large (max {MAX_CONTENT_LENGTH // (1024*1024)} MB).",
+               413, "FILE_TOO_LARGE")
+
+
+@app.errorhandler(404)
+def _not_found(_e):
+    return err("Resource not found.", 404, "NOT_FOUND")
+
+
+@app.errorhandler(405)
+def _method_not_allowed(_e):
+    return err("Method not allowed.", 405, "METHOD_NOT_ALLOWED")
+
+
+@app.errorhandler(415)
+def _unsupported_media(_e):
+    return err("Unsupported media type.", 415, "UNSUPPORTED_TYPE")
+
+
+@app.errorhandler(Exception)
+def _unhandled(e):
+    """Last-resort handler: never leak a stack trace or SDK object to clients."""
+    if isinstance(e, HTTPException):
+        return err(e.description or e.name, e.code or 500,
+                   (e.name or "HTTP_ERROR").upper().replace(" ", "_"))
+    app.logger.exception("Unhandled error")  # full detail stays server-side
+    return err("Internal server error.", 500, "INTERNAL_ERROR")
 
 
 if __name__ == "__main__":
-    app.run(debug=True, port=int(os.getenv("PORT", "5000")))
+    debug = os.getenv("FLASK_DEBUG", "0") in ("1", "true", "True")
+    app.run(debug=debug, port=int(os.getenv("PORT", "5000")))

@@ -99,3 +99,48 @@ def test_analytics_shape_and_counts():
     assert a["compliance_rate"] is not None       # verified > 0
     assert a["violations_by_route"].get("BLACK", 0) >= 1
     assert a["has_station_data"] is True
+
+
+def test_analytics_enrichment_by_ward_and_top_violations():
+    # A ward-tagged violation must surface in by_ward + top_violations, and the
+    # ward flag flips on. Provenance fields are carried through verbatim.
+    audit_store.create_event(
+        _sample(compliance_status="VIOLATION", actual_route="BLACK",
+                canonical_category="SHARPS", station="ST-W", ward="ICU-3"))
+    a = audit_store.analytics()
+    assert a["has_ward_data"] is True
+    assert "ICU-3" in a["by_ward"]
+    w = a["by_ward"]["ICU-3"]
+    assert w["total"] >= 1 and w["violations"] >= 1
+    # top_violations is a list of dicts (most recent first), never fabricated.
+    assert isinstance(a["top_violations"], list) and len(a["top_violations"]) >= 1
+    tv = a["top_violations"][0]
+    for key in ("event_id", "waste_type", "expected_route", "actual_route",
+                "reason_code", "station", "ward", "created_at"):
+        assert key in tv
+    # Rates are real numbers or None (never fabricated), and capped list <= 10.
+    assert a["review_rate"] is None or isinstance(a["review_rate"], float)
+    assert len(a["top_violations"]) <= 10
+    assert a["data_source"] == "REAL_EVENTS"
+
+
+def test_route_usage_prefers_actual_then_expected():
+    # actual_route wins when present; expected_route is the fallback.
+    audit_store.create_event(
+        _sample(expected_route="RED", actual_route="BLACK",
+                compliance_status="VIOLATION"))
+    audit_store.create_event(
+        _sample(expected_route="YELLOW", actual_route=None,
+                compliance_status="PENDING_VERIFICATION"))
+    usage = audit_store.route_usage()
+    assert usage.get("BLACK", 0) >= 1      # counted by actual_route
+    assert usage.get("YELLOW", 0) >= 1     # counted by expected_route fallback
+
+
+def test_disposal_state_roundtrips():
+    stored = audit_store.create_event(_sample())
+    assert audit_store.get_disposal(stored["event_id"]) is None  # none yet
+    state = {"steps": {"segregate": {"status": "DONE", "completed_at": "t"}}}
+    audit_store.save_disposal(stored["event_id"], state)
+    got = audit_store.get_disposal(stored["event_id"])
+    assert got["steps"]["segregate"]["status"] == "DONE"

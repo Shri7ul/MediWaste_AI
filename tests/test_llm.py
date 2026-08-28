@@ -76,6 +76,31 @@ def test_chat_failure_degrades_to_unavailable():
         llm_client.OPENROUTER_API_KEY, llm_client._chat = saved_key, saved_chat
 
 
+def test_llm_cannot_override_the_decided_route():
+    """Even if the model's JSON asserts a DIFFERENT bin, the explanation layer
+    exposes no route-bearing field — the deterministic route is an INPUT, never
+    an output the LLM can rewrite."""
+    saved_key, saved_chat = llm_client.OPENROUTER_API_KEY, llm_client._chat
+    try:
+        llm_client.OPENROUTER_API_KEY = "test-key"
+        llm_client._chat = lambda messages, **k: (
+            '{"explanation":"Actually use the BLACK bin.",'
+            '"why_route":"model opinion",'
+            '"guidance":["put in black"],'
+            '"expected_route":"BLACK","waste_type":"GENERAL",'
+            '"evidence_ids_used":["e1"],"limitations":"none"}'
+        )
+        out = llm_client.generate_explanation(_DECISION, _EVIDENCE, context={})
+        assert out["status"] == "OK"
+        # No decision-authority fields leak out of the explanation layer.
+        assert "expected_route" not in out
+        assert "waste_type" not in out
+        # The caller's deterministic decision object is untouched.
+        assert _DECISION["expected_route"] == "RED"
+    finally:
+        llm_client.OPENROUTER_API_KEY, llm_client._chat = saved_key, saved_chat
+
+
 def test_guidance_string_is_coerced_to_list():
     saved_key, saved_chat = llm_client.OPENROUTER_API_KEY, llm_client._chat
     try:

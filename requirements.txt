@@ -19,8 +19,7 @@ torch==2.4.0
 transformers==4.44.2
 
 # ---- Object detection: Roboflow serverless (lazy import) ----
-# inference-sdk==0.22.0
-inference-sdk==0.29.2
+inference-sdk==0.22.0
 
 # ---- RAG: Pinecone with integrated embedding (modern SDK, lazy import) ----
 # v5.1+ exposes the integrated-embedding records search API used here.
@@ -31,4 +30,3 @@ pinecone>=5.1,<8
 
 # ---- OpenRouter explanation layer ----
 requests==2.32.3
-gunicorn
