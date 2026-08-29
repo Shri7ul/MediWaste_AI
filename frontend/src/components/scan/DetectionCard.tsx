@@ -1,18 +1,24 @@
 "use client"
-import { Card, CardContent } from "@/components/ui/card"
 import { AnalyzeResponse } from "@/lib/types/api"
 import { apiAsset } from "@/lib/api/client"
 import { ScanLine } from "lucide-react"
 
+/**
+ * Secondary, supporting card: what the vision model saw. Deliberately quieter
+ * than ExpectedRouteCard — the operator's decision is the route, not the label.
+ */
 export function DetectionCard({ data }: { data: AnalyzeResponse }) {
   const { primary } = data.analysis
   const conf = Math.round((primary?.confidence || 0) * 100)
   const imageUrl = apiAsset(data.image_url)
 
   return (
-    <Card className="overflow-hidden shadow-card border-border/70">
+    <section
+      aria-label="Detected item"
+      className="overflow-hidden rounded-2xl border border-border bg-card shadow-soft"
+    >
       {imageUrl && (
-        <div className="relative bg-slate-100 aspect-[4/3]">
+        <div className="relative aspect-[4/3] bg-slate-100">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src={imageUrl}
@@ -21,17 +27,13 @@ export function DetectionCard({ data }: { data: AnalyzeResponse }) {
           />
         </div>
       )}
-      <CardContent className="pt-4">
-        <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-primary">
-          <ScanLine className="h-3.5 w-3.5" /> Detected item
+      <div className="p-5">
+        <div className="flex items-center gap-1.5 t-eyebrow">
+          <ScanLine className="h-3.5 w-3.5" aria-hidden /> Item scanned
         </div>
-        <h2 className="mt-1 text-2xl font-bold tracking-tight text-foreground">
-          {primary?.item || "Unrecognised"}
-        </h2>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Model confidence {conf}%
-        </p>
-      </CardContent>
-    </Card>
+        <h3 className="t-display mt-1">{primary?.item || "Unrecognised"}</h3>
+        <p className="t-meta mt-1">Detection confidence {conf}%</p>
+      </div>
+    </section>
   )
 }

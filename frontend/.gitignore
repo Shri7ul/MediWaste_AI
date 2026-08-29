@@ -20,6 +20,15 @@
 .DS_Store
 *.pem
 
+# local TLS material for the LAN exhibition (mkcert) — NEVER commit
+/certs/*
+!/certs/README.md
+*.key
+*.crt
+*.cer
+*.pfx
+*.p12
+
 # debug
 npm-debug.log*
 yarn-debug.log*

@@ -21,8 +21,20 @@ env/
 .pytest_cache/
 .ipynb_checkpoints/
 
+# ---- Local TLS material (NEVER commit) ----
+*.pem
+*.key
+*.crt
+*.cer
+*.pfx
+*.p12
+frontend/certs/*
+!frontend/certs/README.md
+
 # ---- OS / editor ----
 .DS_Store
 Thumbs.db
 .idea/
 .vscode/
+
+*.pem

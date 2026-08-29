@@ -128,13 +128,14 @@ export default function OperationsPage() {
     <div className="space-y-8">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight text-foreground">Operations Center</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Hospital waste flow · Bin status · Collection readiness
+          <div className="t-eyebrow">Waste control</div>
+          <h1 className="t-hero mt-1">Operations Center</h1>
+          <p className="mt-1.5 text-base font-medium text-muted-foreground">
+            Which bin needs collecting, and what is waiting inside it.
           </p>
         </div>
         <span className="inline-flex w-fit items-center gap-2 rounded-full border border-warning/40 bg-warning/10 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-warning">
-          <Info className="h-3.5 w-3.5" />
+          <Info className="h-3.5 w-3.5" aria-hidden />
           Exhibition mode · Simulated capacity
         </span>
       </div>
@@ -164,9 +165,7 @@ export default function OperationsPage() {
       )}
 
       <div>
-        <h2 className="mb-3 text-xs font-semibold uppercase tracking-widest text-muted-foreground">
-          All waste streams
-        </h2>
+        <h2 className="mb-3 t-eyebrow">All waste streams</h2>
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {sorted.map((bin) => (
             <BinCard
@@ -207,10 +206,10 @@ function PriorityBanner({
           <WasteBin hex={hex} label={bin.label} size="lg" />
           <div>
             <div className="flex items-center gap-2">
-              <span className={`h-2.5 w-2.5 rounded-full ${t.dot} ${bin.fill_status === "CRITICAL" ? "animate-pulse-soft" : ""}`} />
-              <span className={`text-xs font-bold uppercase tracking-widest ${t.text}`}>{bin.fill_status}</span>
+              <span className={`h-2.5 w-2.5 rounded-full ${t.dot} ${bin.fill_status === "CRITICAL" ? "animate-pulse-soft" : ""}`} aria-hidden />
+              <span className={`text-xs font-bold uppercase tracking-widest ${t.text}`}>{t.label}</span>
             </div>
-            <div className="mt-1 text-2xl font-bold tracking-tight text-foreground">
+            <div className="mt-1 t-display">
               {bin.label} · {bin.category}
             </div>
             <div className="mt-2 flex items-baseline gap-2">
@@ -242,7 +241,7 @@ function PriorityBanner({
             ) : (
               <>
                 <p className={`mt-3 text-sm font-semibold uppercase tracking-wide ${t.text}`}>
-                  {bin.fill_status === "CRITICAL" ? "Collection required" : "Approaching capacity"}
+                  {t.label}
                 </p>
                 {bin.can_start_collection ? (
                   <>
@@ -251,9 +250,11 @@ function PriorityBanner({
                       {bin.pending_collection_count === 1 ? "" : "s"} pending collection.
                     </p>
                     <Button size="lg" onClick={onStart} disabled={starting} className="mt-4 w-full font-semibold sm:w-auto">
-                      {starting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                      Start disposal
-                      {!starting && <ArrowRight className="ml-2 h-4 w-4" />}
+                      {starting ? (
+                        <><Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden /> Starting collection…</>
+                      ) : (
+                        <>Start disposal<ArrowRight className="ml-2 h-4 w-4" aria-hidden /></>
+                      )}
                     </Button>
                   </>
                 ) : (
@@ -298,40 +299,42 @@ function BinCard({
     <div className="flex flex-col rounded-2xl border border-border bg-card p-5 shadow-soft transition-shadow hover:shadow-lift">
       <div className="flex items-start justify-between">
         <WasteBin hex={hex} label={bin.label} size="md" />
+        {/* Status is named in words, not just tinted. */}
         <span className={`inline-flex items-center gap-1.5 rounded-full ${t.bg} px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide ${t.text}`}>
-          <span className={`h-1.5 w-1.5 rounded-full ${t.dot}`} />
-          {bin.fill_status}
+          <span className={`h-1.5 w-1.5 rounded-full ${t.dot}`} aria-hidden />
+          {t.label}
         </span>
       </div>
 
       <div className="mt-4">
-        <div className="text-base font-semibold text-foreground">{bin.label}</div>
+        <div className="t-title">{bin.label}</div>
         <div className="text-sm text-muted-foreground">{bin.category}</div>
+        <div className="mt-0.5 font-mono text-[11px] uppercase tracking-wide text-muted-foreground/70">
+          {bin.route_code}
+        </div>
       </div>
 
       <div className="mt-4">
         <div className="mb-2 flex items-baseline justify-between">
           <span className="text-3xl font-bold tabular-nums text-foreground">{bin.fill_percent}%</span>
-          {bin.fill_status === "CRITICAL" && (
-            <span className="text-[11px] font-bold uppercase tracking-wide text-destructive">Collection required</span>
-          )}
+          <span className="t-meta">capacity</span>
         </div>
         <CapacityBar percent={bin.fill_percent} barClass={t.bar} />
       </div>
 
-      {/* Collection state line — the backend's `collection_state_label`, verbatim */}
-      <div className="mt-3 min-h-[1.25rem] text-xs font-medium">
+      {/* Pending quantity AND lifecycle state — an operator needs both. The
+          state sentence is the backend's `collection_state_label`, verbatim. */}
+      <div className="mt-3 space-y-0.5">
         {active ? (
-          <span className="text-primary">
-            In progress · {active.item_count} item{active.item_count === 1 ? "" : "s"} · Step {stepNow} of {active.total_steps}
-          </span>
-        ) : bin.pending_collection_count > 0 ? (
-          <span className="text-muted-foreground">
-            {bin.pending_collection_count} item{bin.pending_collection_count === 1 ? "" : "s"} pending collection
-          </span>
+          <p className="text-xs font-bold text-primary">
+            Collection in progress · {active.item_count} item{active.item_count === 1 ? "" : "s"} · Step {stepNow} of {active.total_steps}
+          </p>
         ) : (
-          <span className="text-muted-foreground/70">{bin.collection_state_label}</span>
+          <p className="text-xs font-bold text-foreground">
+            {bin.pending_collection_count} item{bin.pending_collection_count === 1 ? "" : "s"} pending collection
+          </p>
         )}
+        <p className="t-meta">{bin.collection_state_label}</p>
       </div>
 
       <div className="mt-4 flex items-center gap-2">
@@ -351,8 +354,11 @@ function BinCard({
             disabled={starting}
             className="flex-1 font-semibold"
           >
-            {starting ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : null}
-            Start disposal
+            {starting ? (
+              <><Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" aria-hidden /> Starting…</>
+            ) : (
+              "Start disposal"
+            )}
           </Button>
         ) : null}
         <Button variant="ghost" size="sm" onClick={onDetails} className={active || canCollect ? "" : "flex-1"}>
@@ -381,8 +387,8 @@ function BinDetailSheet({ bin, onClose }: { bin: BinOperation | null; onClose: (
               <div>
                 <div className="text-4xl font-black tabular-nums text-foreground">{bin.fill_percent}%</div>
                 <span className={`mt-1 inline-flex items-center gap-1.5 rounded-full ${t.bg} px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide ${t.text}`}>
-                  <span className={`h-1.5 w-1.5 rounded-full ${t.dot}`} />
-                  {bin.fill_status}
+                  <span className={`h-1.5 w-1.5 rounded-full ${t.dot}`} aria-hidden />
+                  {t.label}
                 </span>
               </div>
             </div>
@@ -398,6 +404,7 @@ function BinDetailSheet({ bin, onClose }: { bin: BinOperation | null; onClose: (
             <dl className="mt-6 space-y-3 border-t border-border pt-5 text-sm">
               <Row label="Route" value={bin.route_code} />
               <Row label="Waste type" value={bin.category || "—"} />
+              <Row label="Fill status" value={bin.fill_status} />
               <Row label="Collection state" value={bin.collection_state_label} />
               <Row label="Capacity units" value={String(bin.capacity_units)} />
               <Row label="Routed events (total)" value={String(bin.routed_event_count)} />

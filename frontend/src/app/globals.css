@@ -54,3 +54,38 @@
     font-variant-numeric: tabular-nums;
   }
 }
+
+/* ---------------------------------------------------------------------------
+   Hierarchy scale.
+
+   The palette above is unchanged — these are TYPE roles only, so that the same
+   idea is always rendered at the same weight across screens. Use them in this
+   order and resist making two things on one screen equal:
+
+     .t-eyebrow  small uppercase context   ("MEDIWASTE AI", "WARD")
+     .t-hero     the single dominant fact  (waste type, compliance verdict)
+     .t-display  the second-most fact      (route / bin name)
+     .t-title    section or card heading
+     .t-body     supporting sentence
+     .t-meta     provenance, ids, counts
+   ------------------------------------------------------------------------- */
+@layer components {
+  .t-eyebrow {
+    @apply text-[11px] font-bold uppercase tracking-[0.18em] text-muted-foreground;
+  }
+  .t-hero {
+    @apply text-3xl font-black leading-[1.05] tracking-tight text-foreground sm:text-4xl;
+  }
+  .t-display {
+    @apply text-xl font-bold leading-tight tracking-tight text-foreground sm:text-2xl;
+  }
+  .t-title {
+    @apply text-base font-semibold tracking-tight text-foreground;
+  }
+  .t-body {
+    @apply text-sm leading-relaxed text-muted-foreground;
+  }
+  .t-meta {
+    @apply text-[11px] leading-relaxed text-muted-foreground/70;
+  }
+}

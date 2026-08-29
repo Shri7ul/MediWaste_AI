@@ -1,7 +1,7 @@
 "use client"
 import { useCallback, useEffect, useState } from "react"
 import { api, ApiError } from "@/lib/api/client"
-import { CollectionJob, RouteMeta, WorkflowStepState } from "@/lib/types/api"
+import { BinOperation, CollectionJob, RouteMeta, WorkflowStepState } from "@/lib/types/api"
 import { resolveStream } from "@/lib/waste"
 import { WasteBin } from "@/components/ui/waste-bin"
 import { Button } from "@/components/ui/button"
@@ -83,8 +83,21 @@ export default function CollectionJobPage({ params }: { params: { jobId: string 
       <div className="flex items-center gap-5 rounded-2xl border border-border bg-card p-5 shadow-soft">
         <WasteBin hex={meta.hex} label={meta.label} size="md" />
         <div className="min-w-0">
-          <div className="text-xs font-semibold uppercase tracking-widest text-primary">Collection workflow</div>
-          <h1 className="mt-1 text-2xl font-bold leading-tight tracking-tight text-foreground">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="t-eyebrow">Collection workflow</span>
+            {/* State is named, not just tinted. */}
+            <span
+              className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${
+                isComplete
+                  ? "bg-success/10 text-success"
+                  : "bg-primary/10 text-primary"
+              }`}
+            >
+              <span className={`h-1.5 w-1.5 rounded-full ${isComplete ? "bg-success" : "bg-primary animate-pulse-soft"}`} aria-hidden />
+              {isComplete ? "Complete" : "In progress"}
+            </span>
+          </div>
+          <h1 className="mt-1 t-display">
             {meta.label} · {streamLabel}
           </h1>
           <p className="text-sm text-muted-foreground">
@@ -245,10 +258,10 @@ function ActiveStepCard({
       transition={{ duration: 0.25 }}
     >
       <div className="rounded-2xl border border-primary/30 bg-card p-6 shadow-card ring-1 ring-primary/10">
-        <div className="text-xs font-semibold uppercase tracking-widest text-primary">
+        <div className="t-eyebrow text-primary">
           Step {index + 1} of {total}
         </div>
-        <h2 className="mt-2 text-2xl font-bold tracking-tight text-foreground">{step.label}</h2>
+        <h2 className="mt-2 text-2xl font-black leading-tight tracking-tight text-foreground sm:text-3xl">{step.label}</h2>
         <p className="mt-2 text-base leading-relaxed text-muted-foreground">{step.description}</p>
 
         <Button
@@ -290,6 +303,22 @@ function CompletionScreen({
   streamLabel: string
 }) {
   const count = job.event_count
+  // After a job COMPLETES the backend drops this bin's pending count (and with
+  // it the simulated capacity). Those numbers are READ BACK from /operations —
+  // never assumed, never computed here.
+  const [bin, setBin] = useState<BinOperation | null>(null)
+  useEffect(() => {
+    let mounted = true
+    api
+      .operations()
+      .then((res) => {
+        if (!mounted) return
+        setBin(res.operations.bins.find((b) => b.bin_id === job.bin_id) ?? null)
+      })
+      .catch(() => {})
+    return () => { mounted = false }
+  }, [job.bin_id])
+
   return (
     <motion.div
       initial={{ opacity: 0, scale: 0.97 }}
@@ -303,16 +332,55 @@ function CompletionScreen({
         transition={{ type: "spring", stiffness: 260, damping: 18, delay: 0.1 }}
         className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-success text-white"
       >
-        <Check className="h-8 w-8" />
+        <Check className="h-8 w-8" aria-hidden />
       </motion.div>
-      <h2 className="mt-5 text-2xl font-bold tracking-tight text-foreground">Collection complete</h2>
+      <h2 className="mt-5 text-3xl font-black leading-tight tracking-tight text-foreground">
+        Collection complete
+      </h2>
       <p className="mt-2 flex items-center justify-center gap-2 text-sm font-semibold text-foreground">
-        <span className="h-3 w-3 rounded-full" style={{ backgroundColor: meta.hex }} />
+        <span className="h-3 w-3 rounded-full" style={{ backgroundColor: meta.hex }} aria-hidden />
         {meta.label} · {streamLabel}
       </p>
       <p className="mt-1 text-sm text-muted-foreground">
         {count} item{count === 1 ? "" : "s"} processed. Compliance results for each audit event are unchanged.
       </p>
+
+      {/* The emptied bin, straight from /operations. */}
+      {bin && (
+        <motion.div
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.25, duration: 0.3 }}
+          className="mx-auto mt-6 max-w-sm rounded-xl border border-border bg-card p-4 text-left"
+        >
+          <div className="t-eyebrow">{bin.label} bin now</div>
+          <div className="mt-2 flex items-end justify-between gap-4">
+            <div>
+              <div className="text-3xl font-black tabular-nums text-foreground">
+                {bin.pending_collection_count}
+              </div>
+              <div className="t-meta">item{bin.pending_collection_count === 1 ? "" : "s"} pending collection</div>
+            </div>
+            <div className="text-right">
+              <div className="text-3xl font-black tabular-nums text-foreground">{bin.fill_percent}%</div>
+              <div className="t-meta">simulated capacity</div>
+            </div>
+          </div>
+          <div className="mt-3 h-2 w-full overflow-hidden rounded-full bg-muted">
+            {bin.fill_percent > 0 && (
+              <div
+                className="h-full rounded-full bg-success transition-all duration-700"
+                style={{ width: `${Math.min(Math.max(bin.fill_percent, 0), 100)}%` }}
+              />
+            )}
+          </div>
+          <p className="mt-3 t-meta">{bin.collection_state_label}</p>
+          <p className="mt-1 t-meta">
+            {bin.routed_event_count} audit record{bin.routed_event_count === 1 ? "" : "s"} for this
+            stream are retained permanently.
+          </p>
+        </motion.div>
+      )}
 
       <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:justify-center">
         <Button asChild variant="outline">

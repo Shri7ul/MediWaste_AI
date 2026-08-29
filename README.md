@@ -115,6 +115,32 @@ python -m pytest tests -q
 python verify_integrations.py
 ```
 
+```bash
+flask --app app run --host=0.0.0.0 --port=5000
+```
+```bash 
+npm run dev -- --hostname 0.0.0.0
+```
+```bash
+http://192.168.1.14:3000/scan
+```
+
+``` bash
+winget install FiloSottile.mkcert
+```
+```bash
+mkcert -install
+```
+```bash
+mkcert -key-file certs/lan-key.pem -cert-file certs/lan-cert.pem 192.168.1.14 localhost 127.0.0.1
+```
+```bash 
+Get-ChildItem "$env:LOCALAPPDATA\Microsoft\WinGet\Packages" -Filter "mkcert.exe" -Recurse -ErrorAction SilentlyContinue
+```
+```bash
+Get-ChildItem "$env:LOCALAPPDATA\Microsoft\WinGet\Packages" -Filter "mkcert.exe" -Recurse -ErrorAction SilentlyContinue
+```
+
 ## Honest limitations
 
 - The physical disposal bin is **not** detected; the operator confirms the

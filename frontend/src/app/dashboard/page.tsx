@@ -5,7 +5,7 @@ import { AnalyticsData } from "@/lib/types/api"
 import { resolveStream } from "@/lib/waste"
 import { Button } from "@/components/ui/button"
 import {
-  PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, LabelList,
+  BarChart, Bar, Cell, XAxis, YAxis, Tooltip, ResponsiveContainer, LabelList,
 } from "recharts"
 import {
   ShieldCheck, ShieldAlert, CheckCircle2, AlertCircle, Layers, FileSearch, RefreshCw, AlertTriangle,
@@ -111,22 +111,13 @@ export default function DashboardPage() {
     )
   }
 
-  const complianceData = [
-    { name: "Correct", value: data.correct, color: "#0f9d6b" },
-    { name: "Violation", value: data.violations, color: "hsl(var(--destructive))" },
-    { name: "Review / Pending", value: data.review_required + data.pending_verification, color: "#d97706" },
-  ].filter((d) => d.value > 0)
-
   const complianceLabel = data.compliance_rate != null ? `${data.compliance_rate}%` : "—"
 
   return (
     <div className="mx-auto max-w-7xl space-y-8">
-      <Header verified={data.verified} />
+      <Header total={data.total_events} verified={data.verified} />
       <KpiRow data={data} complianceLabel={complianceLabel} />
       <ChartsGrid
-        complianceData={complianceData}
-        complianceLabel={complianceLabel}
-        verified={data.verified}
         wasteViolations={wasteViolations}
         routeViolations={routeViolations}
         wardPerformance={wardPerformance}
@@ -146,18 +137,19 @@ function toSortedBars(obj?: Record<string, number>) {
     .sort((a, b) => b.value - a.value)
 }
 
-function Header({ verified }: { verified: number }) {
+function Header({ total, verified }: { total: number; verified: number }) {
   return (
     <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
       <div>
-        <h1 className="text-3xl font-bold tracking-tight text-foreground">Analytics Dashboard</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Compliance &amp; waste segregation performance
+        <div className="t-eyebrow">Proof at scale</div>
+        <h1 className="t-hero mt-1">Compliance Performance</h1>
+        <p className="mt-1.5 text-base font-medium text-muted-foreground">
+          How reliably waste is being segregated, measured from the audit trail.
         </p>
       </div>
       <span className="inline-flex w-fit items-center gap-2 rounded-full border border-border bg-card px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-        <Layers className="h-3.5 w-3.5" />
-        {verified} verified {verified === 1 ? "event" : "events"}
+        <Layers className="h-3.5 w-3.5" aria-hidden />
+        {total} {total === 1 ? "event" : "events"} · {verified} verified
       </span>
     </div>
   )
@@ -166,16 +158,16 @@ function Header({ verified }: { verified: number }) {
 function KpiRow({ data, complianceLabel }: { data: AnalyticsData; complianceLabel: string }) {
   return (
     <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
-      {/* Dominant: compliance rate */}
-      <div className="relative overflow-hidden rounded-2xl border border-primary/30 bg-primary/[0.06] p-5 shadow-card sm:col-span-2 lg:col-span-1">
+      {/* The one number a judge should leave with. */}
+      <div className="relative overflow-hidden rounded-2xl border border-primary/30 bg-primary/[0.06] p-6 shadow-card sm:col-span-2">
         <div className="flex items-center gap-2 text-primary">
-          <ShieldCheck className="h-4 w-4" />
+          <ShieldCheck className="h-4 w-4" aria-hidden />
           <span className="text-[11px] font-bold uppercase tracking-widest">Compliance rate</span>
         </div>
-        <div className="mt-3 text-5xl font-black tabular-nums leading-none text-primary">{complianceLabel}</div>
-        <p className="mt-2 text-xs text-muted-foreground">
+        <div className="mt-3 text-6xl font-black tabular-nums leading-none text-primary">{complianceLabel}</div>
+        <p className="mt-3 text-sm text-muted-foreground">
           {data.compliance_rate != null
-            ? `${data.correct} correct of ${data.verified} verified`
+            ? `${data.correct} correct of ${data.verified} verified disposals`
             : "Awaiting verified events"}
         </p>
       </div>
@@ -183,7 +175,6 @@ function KpiRow({ data, complianceLabel }: { data: AnalyticsData; complianceLabe
       <KpiCard label="Violations" value={data.violations} tone="destructive" icon={<ShieldAlert className="h-4 w-4" />} />
       <KpiCard label="Correct" value={data.correct} tone="success" icon={<CheckCircle2 className="h-4 w-4" />} />
       <KpiCard label="Review required" value={data.review_required} tone="warning" icon={<AlertCircle className="h-4 w-4" />} />
-      <KpiCard label="Total events" value={data.total_events} tone="muted" icon={<Layers className="h-4 w-4" />} />
     </div>
   )
 }
@@ -229,11 +220,8 @@ function EmptyChart({ label }: { label: string }) {
 }
 
 function ChartsGrid({
-  complianceData, complianceLabel, verified, wasteViolations, routeViolations, wardPerformance,
+  wasteViolations, routeViolations, wardPerformance,
 }: {
-  complianceData: { name: string; value: number; color: string }[]
-  complianceLabel: string
-  verified: number
   wasteViolations: { name: string; value: number }[]
   routeViolations: { name: string; value: number }[]
   wardPerformance: { name: string; total: number; compliance: number | null }[]
@@ -241,36 +229,6 @@ function ChartsGrid({
   const barHeight = (n: number) => Math.max(160, n * 44 + 40)
   return (
     <div className="grid gap-6 lg:grid-cols-2">
-      {/* Compliance overview */}
-      <ChartCard title="Compliance overview" subtitle="Distribution of verified & pending outcomes">
-        {complianceData.length > 0 ? (
-          <div className="relative h-64">
-            <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
-                <Pie data={complianceData} cx="50%" cy="50%" innerRadius={68} outerRadius={92} paddingAngle={3} dataKey="value" stroke="none">
-                  {complianceData.map((e, i) => <Cell key={i} fill={e.color} />)}
-                </Pie>
-                <Tooltip {...CHART_TOOLTIP} />
-              </PieChart>
-            </ResponsiveContainer>
-            <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
-              <span className="text-3xl font-black tabular-nums text-foreground">{complianceLabel}</span>
-              <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Compliance</span>
-            </div>
-          </div>
-        ) : (
-          <EmptyChart label="No verified outcomes yet." />
-        )}
-        <div className="mt-4 flex flex-wrap justify-center gap-4">
-          {complianceData.map((e) => (
-            <span key={e.name} className="flex items-center gap-2 text-xs text-muted-foreground">
-              <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: e.color }} />
-              {e.name} · <span className="font-semibold tabular-nums text-foreground">{e.value}</span>
-            </span>
-          ))}
-        </div>
-      </ChartCard>
-
       {/* Violations by waste type */}
       <ChartCard title="Violations by waste type" subtitle="Where mis-segregation happens most">
         {wasteViolations.length > 0 ? (

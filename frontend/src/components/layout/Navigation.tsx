@@ -22,7 +22,10 @@ export function Navigation({ className }: { className?: string }) {
           href={link.href}
           aria-current={pathname.startsWith(link.href) ? "page" : undefined}
           className={cn(
-            "rounded-md px-2.5 py-2 text-sm font-medium transition-colors hover:text-primary lg:px-3",
+            // shrink-0 + whitespace-nowrap: in the mobile scroll row the labels
+            // must never compress or wrap. min-h-[44px] keeps the tap target
+            // comfortable on a phone without adding height on desktop.
+            "inline-flex shrink-0 items-center whitespace-nowrap rounded-md px-3 py-2 text-sm font-medium transition-colors hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 min-h-[44px] md:min-h-0 lg:px-3",
             pathname.startsWith(link.href)
               ? "bg-secondary text-primary"
               : "text-muted-foreground"

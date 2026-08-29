@@ -95,11 +95,16 @@ export function EvidenceSheet({ open, onOpenChange, analyzeData, verifyData }: E
 
             {/* 2 — Policy rule (the deciding authority) */}
             <div className="flex items-center gap-2 rounded-lg border border-border bg-card p-3 text-sm">
-              <ShieldCheck className="h-4 w-4 shrink-0 text-primary" />
+              <ShieldCheck className="h-4 w-4 shrink-0 text-primary" aria-hidden />
               <span className="text-muted-foreground">
                 Policy <span className="font-medium text-foreground">{decision.rule_id}</span> · v{decision.policy_version}
               </span>
             </div>
+
+            <p className="t-meta">
+              The bin is decided by the policy rule above. The evidence and explanation
+              below support that decision — they do not change it.
+            </p>
 
             {/* 3 — Retrieved evidence (RAG supports) */}
             <section className="space-y-3">
@@ -122,7 +127,7 @@ export function EvidenceSheet({ open, onOpenChange, analyzeData, verifyData }: E
                     <button
                       type="button"
                       onClick={() => setShowAll((v) => !v)}
-                      className="text-xs font-medium text-primary hover:underline"
+                      className="rounded text-xs font-medium text-ai hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                     >
                       {showAll ? "Show fewer" : `View all evidence (${evidenceCount})`}
                     </button>
@@ -140,19 +145,21 @@ export function EvidenceSheet({ open, onOpenChange, analyzeData, verifyData }: E
               )}
             </section>
 
-            {/* 4 — AI explanation (LLM explains, grounded in evidence) */}
+            {/* 4 — AI explanation (LLM explains, grounded in evidence).
+                Violet is reserved for AI/supporting intelligence — never for the
+                compliance verdict or the policy decision. */}
             <section className="space-y-2">
-              <div className="flex items-center gap-2 text-primary">
-                <Sparkles className="h-4 w-4" />
+              <div className="flex items-center gap-2 text-ai">
+                <Sparkles className="h-4 w-4" aria-hidden />
                 <h3 className="text-sm font-semibold">
                   Explanation{explanation?.model ? ` (${explanation.model})` : ""}
                 </h3>
               </div>
               {hasExplanation ? (
-                <div className="rounded-lg border border-border bg-card p-4 text-sm leading-relaxed text-foreground">
+                <div className="rounded-lg border border-ai/30 bg-ai/[0.06] p-4 text-sm leading-relaxed text-foreground">
                   {explanation.explanation}
                   {explanation.evidence_ids_used?.length > 0 && (
-                    <div className="mt-3 text-[11px] font-medium uppercase tracking-wide text-primary/70">
+                    <div className="mt-3 text-[11px] font-medium uppercase tracking-wide text-ai">
                       Grounded in {explanation.evidence_ids_used.length} cited{" "}
                       {explanation.evidence_ids_used.length === 1 ? "passage" : "passages"}
                     </div>
@@ -175,7 +182,7 @@ export function EvidenceSheet({ open, onOpenChange, analyzeData, verifyData }: E
                 <ul className="space-y-2">
                   {guidance.map((g, idx) => (
                     <li key={idx} className="flex gap-2 rounded-lg border border-border bg-card p-3 text-xs leading-relaxed text-foreground/90">
-                      <span className="text-primary">•</span>
+                      <span className="text-ai" aria-hidden>•</span>
                       <span>{g}</span>
                     </li>
                   ))}

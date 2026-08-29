@@ -1,12 +1,38 @@
 import { AnalyzeResponse, VerifyResponse, HealthStatus, PolicyMetadata, OperationsOverview, WorkflowDefinition, DisposalWorkflow, AnalyticsData, EventRecord, CollectionJob, FacilityContext } from '../types/api';
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://127.0.0.1:5000';
+/**
+ * Where the Flask API lives.
+ *
+ * Resolution order (no laptop IP is ever hardcoded):
+ *  1. `NEXT_PUBLIC_API_BASE_URL` — the explicit, documented override. Always wins.
+ *  2. The origin the page was actually served from, with the API port. This is
+ *     what makes exhibition access work: a judge's phone loading the app from
+ *     `http://<lan-host>:3000` must call Flask on `<lan-host>`, not on the
+ *     phone's own loopback.
+ *  3. Server-side rendering / build time, where there is no browser origin:
+ *     the local dev default.
+ *
+ * `NEXT_PUBLIC_API_PORT` exists only so a non-default Flask `PORT` can be
+ * followed without editing code.
+ */
+const CONFIGURED_BASE = (process.env.NEXT_PUBLIC_API_BASE_URL || '').trim().replace(/\/+$/, '');
+const API_PORT = (process.env.NEXT_PUBLIC_API_PORT || '5000').trim();
+
+/** Resolved lazily: `window` does not exist during server rendering. */
+export function apiBase(): string {
+  if (CONFIGURED_BASE) return CONFIGURED_BASE;
+  if (typeof window !== 'undefined' && window.location?.hostname) {
+    const { protocol, hostname } = window.location;
+    return `${protocol}//${hostname}:${API_PORT}`;
+  }
+  return `http://127.0.0.1:${API_PORT}`;
+}
 
 /** Resolve a backend-relative asset path (e.g. /uploads/x.jpg) to an absolute URL. */
 export function apiAsset(path: string | null | undefined): string | undefined {
   if (!path) return undefined;
   if (/^https?:\/\//i.test(path)) return path;
-  return `${API_BASE}${path.startsWith('/') ? '' : '/'}${path}`;
+  return `${apiBase()}${path.startsWith('/') ? '' : '/'}${path}`;
 }
 
 export class ApiError extends Error {
@@ -21,7 +47,7 @@ export class ApiError extends Error {
 }
 
 async function fetchApi<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
-  const url = `${API_BASE}${endpoint}`;
+  const url = `${apiBase()}${endpoint}`;
   
   const headers = new Headers(options.headers);
   if (!(options.body instanceof FormData) && !headers.has('Content-Type')) {

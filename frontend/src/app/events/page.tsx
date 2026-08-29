@@ -9,7 +9,7 @@ import { Sheet, SheetContent } from "@/components/ui/sheet"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import {
   CheckCircle2, AlertTriangle, AlertCircle, Clock, ChevronRight, RefreshCw,
-  ScanLine, FileSearch, ShieldCheck, BookOpen, ArrowRight,
+  ScanLine, FileSearch, ShieldCheck, BookOpen, ArrowRight, Building2,
 } from "lucide-react"
 import { motion } from "framer-motion"
 import Link from "next/link"
@@ -140,8 +140,12 @@ export default function EventsPage() {
   return (
     <div className="mx-auto max-w-4xl space-y-6">
       <div>
-        <h1 className="text-3xl font-bold tracking-tight text-foreground">Audit Events</h1>
-        <p className="mt-1 text-sm text-muted-foreground">Historical compliance events and routing decisions.</p>
+        <div className="t-eyebrow">Proof</div>
+        <h1 className="t-hero mt-1">Audit Events</h1>
+        <p className="mt-1.5 text-base font-medium text-muted-foreground">
+          Every scan leaves a permanent record: the waste, the ward, the recommended bin, the bin
+          used, and the compliance outcome.
+        </p>
       </div>
 
       {!loading && events.length > 0 && (
@@ -153,10 +157,11 @@ export default function EventsPage() {
               <button
                 key={f.key}
                 onClick={() => setFilter(f.key)}
-                className={`inline-flex items-center gap-2 rounded-full border px-3.5 py-1.5 text-xs font-semibold transition-colors ${
+                className={`inline-flex items-center gap-2 rounded-full border px-3.5 py-1.5 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${
                   active ? "border-primary bg-primary text-primary-foreground"
                     : "border-border bg-card text-muted-foreground hover:text-foreground"
                 }`}
+                aria-pressed={active}
               >
                 {f.label}
                 <span className={`tabular-nums ${active ? "opacity-80" : "text-muted-foreground/60"}`}>{n}</span>
@@ -237,7 +242,7 @@ function EventRow({ ev, index, onSelect }: { ev: EventRecord; index: number; onS
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.25, delay: Math.min(index, 8) * 0.03 }}
-      className="group flex w-full items-center gap-4 rounded-2xl border border-border bg-card p-4 text-left shadow-soft transition-shadow hover:shadow-lift"
+      className="group flex w-full items-center gap-4 rounded-2xl border border-border bg-card p-4 text-left shadow-soft transition-shadow hover:shadow-lift focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
     >
       <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full ${s.bg} ${s.text}`}>
         {s.icon}
@@ -245,19 +250,33 @@ function EventRow({ ev, index, onSelect }: { ev: EventRecord; index: number; onS
 
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-          <span className="text-base font-semibold text-foreground">{ev.canonical_category || "Unknown item"}</span>
+          <span className="t-title">{ev.canonical_category || "Unknown item"}</span>
+          {/* Status is spelled out, never colour alone. */}
           <span className={`inline-flex items-center rounded-full ${s.bg} px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide ${s.text}`}>
             {s.label}
           </span>
         </div>
+
+        {/* Expected vs actual — the heart of the audit record. */}
         <div className="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
           <span className="inline-flex items-center gap-1.5">Expected <RouteChip code={ev.expected_route} /></span>
-          <span className="inline-flex items-center gap-1.5">Actual <RouteChip code={ev.actual_route} /></span>
-          <span className="inline-flex items-center gap-1"><Clock className="h-3 w-3" /> {time}</span>
+          <span className="inline-flex items-center gap-1.5">Used <RouteChip code={ev.actual_route} /></span>
+        </div>
+
+        {/* Where and when, plus the collection state of this record. */}
+        <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+          <span className="inline-flex items-center gap-1">
+            <Building2 className="h-3 w-3" aria-hidden /> {ev.ward || "Ward not recorded"}
+          </span>
           {ev.station && <span>· {ev.station}</span>}
-          {ev.collection_job_id && (
+          <span className="inline-flex items-center gap-1"><Clock className="h-3 w-3" aria-hidden /> {time}</span>
+          {ev.collection_job_id ? (
             <span className="inline-flex items-center rounded-full bg-accent px-2 py-0.5 font-mono text-[10px] text-muted-foreground">
               Collected · {ev.collection_job_id}
+            </span>
+          ) : (
+            <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/80">
+              Not yet collected
             </span>
           )}
         </div>
@@ -334,11 +353,13 @@ function DetailBody({ detail, onOpenEvidence }: { detail: EventRecord; onOpenEvi
             </h3>
             <div className="grid grid-cols-2 gap-4">
               <DetailRow label="Time" value={time} />
-              <DetailRow label="Station / Ward" value={`${detail.station || "—"} / ${detail.ward || "—"}`} />
+              <DetailRow label="Ward" value={detail.ward || "Not recorded"} />
+              <DetailRow label="Station" value={detail.station || "—"} />
               <DetailRow label="Detected category" value={<span className="font-semibold">{detail.canonical_category || "—"}</span>} />
               <DetailRow label="Confidence" value={detail.confidence != null ? `${Math.round(detail.confidence * 100)}%` : "—"} />
+              <DetailRow label="Collection" value={detail.collection_job_id || "Not yet collected"} mono={!!detail.collection_job_id} />
               <DetailRow label="Expected route" value={<RouteChip code={detail.expected_route} />} />
-              <DetailRow label="Actual route" value={<RouteChip code={detail.actual_route} />} />
+              <DetailRow label="Bin used" value={<RouteChip code={detail.actual_route} />} />
             </div>
             {detail.reason_code && (
               <div className={`mt-4 flex items-center justify-between rounded-lg border ${s.border} ${s.bg} px-4 py-2.5`}>
@@ -362,7 +383,7 @@ function DetailBody({ detail, onOpenEvidence }: { detail: EventRecord; onOpenEvi
             </div>
 
             {hasExplanation ? (
-              <p className="mt-3 rounded-lg border border-border bg-card p-4 text-sm leading-relaxed text-foreground">
+              <p className="mt-3 rounded-lg border border-ai/30 bg-ai/[0.06] p-4 text-sm leading-relaxed text-foreground">
                 {explanation?.explanation}
               </p>
             ) : (

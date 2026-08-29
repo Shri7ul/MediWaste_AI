@@ -13,11 +13,23 @@ import { api, ApiError } from '@/lib/api/client'
 import { AnalyzeResponse, VerifyResponse } from '@/lib/types/api'
 import { resolveStream } from '@/lib/waste'
 import { unlockAudio, playVerificationBeep } from '@/lib/audio'
+import { useSetStage } from '@/components/layout/StageContext'
+import { StageId } from '@/lib/narrative'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
-import { AlertCircle, FileSearch, RotateCcw } from 'lucide-react'
+import { AlertCircle, Building2, FileSearch, RotateCcw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 
 type FlowState = 'capture' | 'analyzing' | 'verifying' | 'result' | 'error'
+
+// Which narrative stage each point in the flow belongs to. SCAN, DECIDE and
+// VERIFY all share the /scan URL, so the rail is told explicitly.
+const FLOW_STAGE: Record<FlowState, StageId> = {
+  capture: 'scan',
+  analyzing: 'decide',
+  verifying: 'verify',
+  result: 'verify',
+  error: 'scan',
+}
 
 // Station is a fixed identifier for this exhibition terminal. Ward is chosen by
 // the operator per scan (see WardSelector) — it is never defaulted here.
@@ -150,8 +162,29 @@ export function ScanController() {
     ? resolveStream(decision.expected_route, analyzeData!.analysis.route_meta)
     : null
 
+  // Keeps the header rail in step with the flow (SCAN → DECIDE → VERIFY).
+  useSetStage(FLOW_STAGE[flowState])
+
+  // The ward stays on screen for the whole scan: once an event exists its
+  // snapshot wins, otherwise the operator's current choice is echoed back.
+  const shownWard = eventWard ?? ward
+
   return (
     <div className="w-full">
+      {/* Persistent ward context — subtle, but never off-screen once chosen. */}
+      {shownWard && flowState !== 'capture' && (
+        <div className="mb-5 flex items-center gap-2 border-b border-border/70 pb-3">
+          <Building2 className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
+          <span className="text-[11px] font-bold uppercase tracking-[0.16em] text-muted-foreground">
+            Ward
+          </span>
+          <span className="font-mono text-sm font-semibold text-foreground">{shownWard}</span>
+          {eventWard && (
+            <span className="t-meta ml-auto hidden sm:inline">Recorded with this audit event</span>
+          )}
+        </div>
+      )}
+
       {flowState === 'error' && (
         <Alert variant="destructive" className="mb-6">
           <AlertCircle className="h-4 w-4" />
@@ -192,15 +225,6 @@ export function ScanController() {
             className="grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-8"
           >
             <div className="lg:col-span-5 space-y-6">
-              {eventWard && (
-                <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">
-                  <span>Ward</span>
-                  <span className="rounded-md bg-accent px-2 py-0.5 font-mono text-xs tracking-normal text-foreground">
-                    {eventWard}
-                  </span>
-                </div>
-              )}
-              <DetectionCard data={analyzeData} />
               <ExpectedRouteCard data={analyzeData} />
               {expectedMeta && (
                 <div className="rounded-xl border border-border bg-accent/50 p-4">
@@ -211,13 +235,15 @@ export function ScanController() {
                     <span className="font-semibold">{expectedMeta.label}</span> bin.
                   </p>
                   <button
+                    type="button"
                     onClick={() => setShowEvidence(true)}
-                    className="mt-2 inline-flex items-center gap-1.5 text-sm font-medium text-primary hover:underline"
+                    className="mt-2 inline-flex items-center gap-1.5 rounded text-sm font-medium text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                   >
-                    <FileSearch className="h-3.5 w-3.5" /> Why this route?
+                    <FileSearch className="h-3.5 w-3.5" aria-hidden /> Why this route?
                   </button>
                 </div>
               )}
+              <DetectionCard data={analyzeData} />
             </div>
             <div className="lg:col-span-7">
               <ActualRouteSelector data={analyzeData} onVerify={handleVerify} isVerifying={isVerifying} />

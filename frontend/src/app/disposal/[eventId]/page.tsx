@@ -129,8 +129,8 @@ export default function DisposalWorkflowPage({ params }: { params: { eventId: st
       <div className="flex items-center gap-5 rounded-2xl border border-border bg-card p-5 shadow-soft">
         <WasteBin hex={event?.expected_route ? meta.hex : "#94a3b8"} label={meta.label} size="md" />
         <div className="min-w-0">
-          <div className="text-xs font-semibold uppercase tracking-widest text-primary">Disposal workflow</div>
-          <h1 className="mt-1 text-2xl font-bold leading-tight tracking-tight text-foreground">
+          <div className="t-eyebrow">Disposal workflow</div>
+          <h1 className="mt-1 t-display">
             {wasteLabel}
           </h1>
           <p className="text-sm text-muted-foreground">
@@ -267,10 +267,10 @@ function ActiveStepCard({
       transition={{ duration: 0.25 }}
     >
       <div className="rounded-2xl border border-primary/30 bg-card p-6 shadow-card ring-1 ring-primary/10">
-        <div className="text-xs font-semibold uppercase tracking-widest text-primary">
+        <div className="t-eyebrow text-primary">
           Step {index + 1} of {total}
         </div>
-        <h2 className="mt-2 text-2xl font-bold tracking-tight text-foreground">{step.label}</h2>
+        <h2 className="mt-2 text-2xl font-black leading-tight tracking-tight text-foreground sm:text-3xl">{step.label}</h2>
         <p className="mt-2 text-base leading-relaxed text-muted-foreground">{step.description}</p>
 
         <Button
@@ -328,7 +328,9 @@ function CompletionScreen({
       >
         <Check className="h-8 w-8" />
       </motion.div>
-      <h2 className="mt-5 text-2xl font-bold tracking-tight text-foreground">Disposal complete</h2>
+      <h2 className="mt-5 text-3xl font-black leading-tight tracking-tight text-foreground">
+        Disposal complete
+      </h2>
       <p className="mt-2 text-sm text-muted-foreground">
         All required disposal steps have been recorded to the audit trail.
       </p>
