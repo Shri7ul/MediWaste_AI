@@ -12,7 +12,7 @@ import { EvidenceSheet } from './EvidenceSheet'
 import { api, ApiError } from '@/lib/api/client'
 import { AnalyzeResponse, VerifyResponse } from '@/lib/types/api'
 import { resolveStream } from '@/lib/waste'
-import { unlockAudio, playVerificationBeep } from '@/lib/audio'
+import { unlockAudio, playVerificationResult } from '@/lib/audio'
 import { useSetStage } from '@/components/layout/StageContext'
 import { StageId } from '@/lib/narrative'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
@@ -91,12 +91,14 @@ export function ScanController() {
       })
       setVerifyData(result)
       setFlowState('result')
-      // Exactly one beep per completed verification attempt, for CORRECT and
-      // VIOLATION alike. This lives in the async click handler (not an effect),
-      // so re-renders, unrelated state changes, StrictMode double-invocation and
-      // back/forward navigation cannot replay it. Failures return above and stay
-      // silent. Purely supplementary — ComplianceResult remains authoritative.
-      playVerificationBeep()
+      // Exactly one result-specific voice cue per completed verification, played
+      // only after the compliance result is committed: success.wav for CORRECT,
+      // warning.wav for VIOLATION, silence for every other status. This lives in
+      // the async click handler (not an effect), so re-renders, unrelated state
+      // changes, StrictMode double-invocation and back/forward navigation cannot
+      // replay it. Failures return above and stay silent. Purely supplementary —
+      // ComplianceResult remains authoritative.
+      playVerificationResult(result.verification.status)
     } catch (e) {
       handleError(e)
     } finally {
